@@ -192,5 +192,52 @@ Gift `description` and person `notes` are rendered as Markdown in read views: bo
 - `GET /auth/passkeys` → `[{ id, name, createdAt, lastUsedAt }]`. `DELETE /auth/passkeys/:id`.
 - UI: the login page gets a "Sign in with Face ID / passkey" button, shown when `window.PublicKeyCredential` exists. In Settings → Security: "Add a passkey" (default name from the user agent, e.g. "iPhone"), plus a list with remove. Password login stays.
 
-# Phase 3 part B (waiting on a storage decision)
-Receipt photos, avatars, and nightly backups need file storage. Not part of this round.
+# Phase 3 part B: dropped
+Receipt photos, avatars, and nightly backups are out of scope by decision. D1 Time Travel and CSV export cover recovery.
+
+# Phase 3 part C: gifts for several people and family gifts
+
+## Model
+- New table `gift_recipients(gift_id, person_id)` with a primary key on both and cascade on gift delete. Backfill it from `gifts.recipient_id`.
+- New column `gifts.is_family` (bool, default 0).
+- New column `seasons.family_budget_cents` (default 0).
+- `gifts.recipient_id` is retired. Rebuild the table if needed to drop or relax it, preserving all data (D1: `PRAGMA defer_foreign_keys = true` inside the migration).
+- `Gift` JSON: `recipientIds: number[]` (empty when `isFamily`) and `isFamily: boolean`. **`recipientId` is removed.**
+- Create/update rules:
+  - Exactly one of these must hold: `isFamily: true` with `recipientIds` empty, or `recipientIds` with 1–10 distinct people (not giver-only, not archived). Otherwise 400.
+  - `PATCH` with `recipientIds` replaces the whole list.
+- `Season` JSON gains `familyBudgetCents`.
+
+## Money
+- Overall totals count every gift **once**, at full effective price.
+- Per-person `spentCents` and `committedCents`: each recipient gets an **even share**, `floor(price / n)`. The remainder cents go one each to the recipients in ascending `person_id` order, so the shares always add up to the price. The stocking figures, fairness, and `giftCount` work the same way; `giftCount` counts the gift once for each recipient.
+- Family gifts don't count toward any person. The dashboard gains `family: { budgetCents, spentCents, committedCents, giftCount }`.
+- `totals.allocatedCents` = the sum of person budgets **plus** `familyBudgetCents`.
+
+## Surprise rule (updated)
+- A non-family gift is hidden from the viewer when `viewer.personId ∈ recipientIds` and the season isn't past or archived (the ideas inbox counts as never past).
+- **Family gifts are never hidden.**
+- Activity rows store `recipient_ids` (a JSON text column). A row is hidden when the viewer is in its logged recipients **or** in the gift's current recipients.
+- Everything else follows these definitions: history, similar, export, the givers matrix, and name-draw ✓.
+
+## Endpoints
+- `GET /gifts?recipientId=` matches any recipient. `recipientId=family` returns family gifts.
+- `GET /history?personId=` includes multi-person gifts that the person is a recipient of.
+- `GET /gifts/similar?recipientIds=1,2&title=&excludeId=` matches when any recipient overlaps.
+- `PUT /seasons/:id/family-budget` with `{ budgetCents }` → the updated Season.
+- CSV: the `recipient` column holds names joined with ` & `, or `Family`. Import accepts the same, case-insensitively.
+- Activity summaries: `Added "Trampoline" for Ava & Ben`, `Added "Board game" for the family`.
+
+## UI
+- Gift form "For": multi-select chips of people (the same style as "From"), plus a **"🏠 Whole family"** chip that is exclusive (it clears the person chips and vice versa).
+  - A hint shows how the cost is split, e.g. "$150 each".
+  - Family gifts show "Not a surprise; visible to both of you".
+- Cards and the table show "Ava & Ben" or "🏠 Family".
+- Gift list filter: a "Family" option, and a person filter that matches any recipient.
+- Dashboard:
+  - a Family card (budget, spent+committed, count) after the person cards
+  - person cards and fairness use the split shares
+  - multi-person gifts carry a small "shared" marker in the person's lists
+- Settings budgets table: a "🏠 Family" row with its own budget input, included in the live allocation summary.
+- Shopping, wrapping, and the Christmas Eve checklist list multi-person gifts once, as "for Ava & Ben", or under a "Family" group for Christmas Eve.
+- Givers matrix: a multi-person gift fills every recipient's column.
