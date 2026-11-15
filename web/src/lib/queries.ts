@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Gift, type GiftFilters, type GiftInput, type Person } from "../api";
 
@@ -11,6 +12,10 @@ export const qk = {
   stores: ["stores"] as const,
   dashboard: (seasonId: number | undefined) => ["dashboard", seasonId ?? "active"] as const,
   activity: (limit: number, seasonId: number | undefined) => ["activity", limit, seasonId ?? "all"] as const,
+  history: (personId: number) => ["history", personId] as const,
+  similar: (recipientId: number, title: string, excludeId: number | undefined) => ["similar", recipientId, title, excludeId ?? 0] as const,
+  draw: (seasonId: number) => ["draw", seasonId] as const,
+  passkeys: ["passkeys"] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: qk.me, queryFn: api.auth.me, staleTime: 5 * 60_000 });
@@ -27,6 +32,12 @@ export const useDashboard = (seasonId: number | undefined, enabled = true) =>
 
 export const useActivity = (limit: number, seasonId?: number) =>
   useQuery({ queryKey: qk.activity(limit, seasonId), queryFn: () => api.activity({ limit, seasonId }) });
+
+export const useHistory = (personId: number, enabled = true) =>
+  useQuery({ queryKey: qk.history(personId), queryFn: () => api.history(personId), enabled });
+export const useDraw = (seasonId: number | undefined) =>
+  useQuery({ queryKey: qk.draw(seasonId ?? -1), queryFn: () => api.seasons.draw(seasonId!), enabled: seasonId !== undefined });
+export const usePasskeys = () => useQuery({ queryKey: qk.passkeys, queryFn: api.auth.passkeys });
 
 /** Map of person id → person (includes archived so old gifts still show a name). */
 export function usePeopleMap() {
@@ -45,6 +56,8 @@ export function useInvalidateGifts() {
     qc.invalidateQueries({ queryKey: ["dashboard"] });
     qc.invalidateQueries({ queryKey: qk.stores });
     qc.invalidateQueries({ queryKey: ["activity"] });
+    qc.invalidateQueries({ queryKey: ["history"] });
+    qc.invalidateQueries({ queryKey: ["similar"] });
   };
 }
 
@@ -67,4 +80,14 @@ export function useUpdateGift() {
     },
     onSettled: invalidate,
   });
+}
+
+/** `value`, but only after it has stopped changing for `ms`. */
+export function useDebounced<T>(value: T, ms = 400): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
 }

@@ -41,7 +41,7 @@ function inline(escaped: string): string {
   // `code` first: its contents are left alone.
   s = s.replace(/`([^`\n]+)`/g, (_, c: string) => hold(`<code>${c}</code>`));
   // [text](url)
-  s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, text: string, url: string) => {
+  s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_m, text: string, url: string) => {
     const href = safeHref(unescapeHtml(url));
     return href ? hold(anchor(href, emphasis(text))) : text;
   });

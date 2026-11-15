@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, lt, ne } from "drizzle-orm";
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { CookieOptions } from "hono/utils/cookie";
 import { loginAttempts, sessions, users, type UserRow } from "../db/schema";
@@ -70,13 +70,15 @@ export const requireSession: MiddlewareHandler<AppEnv> = async (c, next) => {
 
 export const authRoutes = new Hono<AppEnv>();
 
-authRoutes.post("/login", async (c) => {
-  const { email, password } = await parseJson(c, loginBody);
-  const db = c.var.db;
-  const now = Date.now();
-  const keys = [`email:${email}`, `ip:${clientIp(c.req.raw)}`];
-  const since = now - RATE_LIMIT_WINDOW_MS;
+/** The keys a sign-in attempt counts against: per email (when known) and per IP. */
+export function loginKeys(req: Request, email?: string): string[] {
+  return [...(email ? [`email:${email}`] : []), `ip:${clientIp(req)}`];
+}
 
+/** 429s if any key has too many recent failures (the shared login rate limit). */
+export async function checkLoginRateLimit(c: Context<AppEnv>, keys: string[], now = Date.now()): Promise<void> {
+  const db = c.var.db;
+  const since = now - RATE_LIMIT_WINDOW_MS;
   // Opportunistic cleanup of old attempts, then the rate-limit check.
   await db.delete(loginAttempts).where(lt(loginAttempts.at, since));
   const recent = await db
@@ -90,6 +92,33 @@ authRoutes.post("/login", async (c) => {
     c.header("Retry-After", String(RATE_LIMIT_WINDOW_MS / 1000));
     fail(429, "Too many failed sign-in attempts. Try again in 15 minutes.");
   }
+}
+
+export async function recordLoginFailure(c: Context<AppEnv>, keys: string[], now = Date.now()): Promise<void> {
+  await c.var.db.insert(loginAttempts).values(keys.map((key) => ({ key, at: now })));
+}
+
+/** Clears the failure counters, creates a session and sets the cookie (shared by password and passkey login). */
+export async function startSession(c: Context<AppEnv>, user: UserRow, keys: string[], now = Date.now()): Promise<void> {
+  const db = c.var.db;
+  await db.delete(loginAttempts).where(inArray(loginAttempts.key, keys));
+  const { token, id } = await newSessionToken();
+  await db.insert(sessions).values({
+    id,
+    userId: user.id,
+    expiresAt: new Date(now + SESSION_TTL_MS).toISOString(),
+    createdAt: new Date(now).toISOString(),
+    userAgent: c.req.header("User-Agent")?.slice(0, 500) ?? null,
+  });
+  setCookie(c, SESSION_COOKIE, token, cookieOptions);
+}
+
+authRoutes.post("/login", async (c) => {
+  const { email, password } = await parseJson(c, loginBody);
+  const db = c.var.db;
+  const now = Date.now();
+  const keys = loginKeys(c.req.raw, email);
+  await checkLoginRateLimit(c, keys, now);
 
   const user = await db.select().from(users).where(eq(users.email, email)).get();
   let ok: boolean;
@@ -106,20 +135,11 @@ authRoutes.post("/login", async (c) => {
   }
 
   if (!ok || !user) {
-    await db.insert(loginAttempts).values(keys.map((key) => ({ key, at: now })));
+    await recordLoginFailure(c, keys, now);
     fail(401, "Incorrect email or password");
   }
 
-  await db.delete(loginAttempts).where(inArray(loginAttempts.key, keys));
-  const { token, id } = await newSessionToken();
-  await db.insert(sessions).values({
-    id,
-    userId: user.id,
-    expiresAt: new Date(now + SESSION_TTL_MS).toISOString(),
-    createdAt: new Date(now).toISOString(),
-    userAgent: c.req.header("User-Agent")?.slice(0, 500) ?? null,
-  });
-  setCookie(c, SESSION_COOKIE, token, cookieOptions);
+  await startSession(c, user, keys, now);
   return c.json({ user: toApiUser(user) });
 });
 

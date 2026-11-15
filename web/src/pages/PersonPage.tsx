@@ -3,10 +3,11 @@ import { Link, useParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { ALL_STATUSES, centsToInput, effectivePriceCents, formatCents, formatDate, KIND_LABEL, parseDollars, STATUS_LABEL } from "../lib/format";
-import { useBudgets, useGifts, useMe, usePeople, usePeopleMap } from "../lib/queries";
+import { useBudgets, useGifts, useHistory, useMe, usePeople, usePeopleMap } from "../lib/queries";
 import { useSeason } from "../lib/season";
+import { groupHistoryByYear, inDays, nextBirthday } from "../lib/phase3";
 import GiftCard from "../components/GiftCard";
-import { EmptyState, ErrorNote, Loading, MoneyBar, PersonBadge, statusVar } from "../components/ui";
+import { EmptyState, ErrorNote, Loading, Markdown, MoneyBar, PersonBadge, StatusPill, statusVar } from "../components/ui";
 import { IconChevronLeft, IconPlus } from "../components/Icons";
 import { Money } from "./GiftFormPage";
 
@@ -42,6 +43,10 @@ export default function PersonPage() {
           <p className="text-muted">
             {KIND_LABEL[p.kind]}
             {p.birthday && ` · Birthday ${formatDate(p.birthday, "0000")}`}
+            {(() => {
+              const nb = !p.giverOnly && !p.archived ? nextBirthday(p.birthday) : null;
+              return nb && nb.days <= 60 ? ` · 🎂 ${inDays(nb.days)}` : null;
+            })()}
             {p.archived && " · Archived"}
           </p>
         </div>
@@ -74,10 +79,16 @@ export default function PersonPage() {
               <div className="mt-4 space-y-3 border-t border-line pt-4">
                 {p.likes && <Note label="Likes" text={p.likes} />}
                 {p.dislikes && <Note label="Dislikes" text={p.dislikes} />}
-                {p.notes && <Note label="Notes" text={p.notes} />}
+                {p.notes && (
+                  <div>
+                    <div className="text-[13px] font-semibold text-muted">Notes</div>
+                    <Markdown text={p.notes} />
+                  </div>
+                )}
               </div>
             )}
           </section>
+          {!giverOnly && <History personId={p.id} />}
         </div>
 
         <section>
@@ -125,6 +136,49 @@ export default function PersonPage() {
         </section>
       </div>
     </>
+  );
+}
+
+/** Gifts from earlier seasons, grouped by year (surprises stay hidden server-side). */
+function History({ personId }: { personId: number }) {
+  const q = useHistory(personId);
+  const groups = groupHistoryByYear((q.data ?? []).filter((h) => h.gifts.length));
+  return (
+    <section className="card p-5" aria-labelledby="hist-h">
+      <h2 id="hist-h" className="text-[19px] font-bold">History</h2>
+      <p className="text-[14px] text-muted">What they got in other seasons.</p>
+      {q.isLoading ? (
+        <Loading />
+      ) : q.error ? (
+        <div className="mt-3"><ErrorNote error={q.error} /></div>
+      ) : groups.length === 0 ? (
+        <p className="mt-3 text-muted">Nothing from earlier seasons yet.</p>
+      ) : (
+        <div className="mt-3 space-y-4">
+          {groups.map((g) => (
+            <div key={g.year}>
+              <h3 className="tnum mb-1 text-[22px] font-extrabold leading-none tracking-[-0.02em] text-muted [font-stretch:90%]">{g.year}</h3>
+              {g.entries.map(({ season, gifts }) => (
+                <div key={season.id} className="mt-2">
+                  <div className="text-[14px] font-semibold">{season.name}</div>
+                  <ul className="mt-1 divide-y divide-line rounded-xl border border-line">
+                    {gifts.map((gift) => (
+                      <li key={gift.id}>
+                        <Link to={`/gifts/${gift.id}`} className="flex min-h-[48px] items-center gap-3 px-3 py-2 hover:bg-surface-2">
+                          <span className="min-w-0 flex-1 truncate">{gift.title}</span>
+                          {effectivePriceCents(gift) > 0 && <span className="tnum shrink-0 text-[14px] text-muted">{formatCents(effectivePriceCents(gift))}</span>}
+                          <StatusPill status={gift.status} />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

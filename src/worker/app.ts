@@ -3,10 +3,11 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import * as schema from "../db/schema";
 import { authRoutes, authSessionRoutes, requireSession } from "./auth";
+import { passkeyPublicRoutes, passkeySessionRoutes } from "./passkeys";
 import { activityRoutes } from "./routes/activity";
 import { csvRoutes } from "./routes/csv";
 import { dashboardRoutes } from "./routes/dashboard";
-import { giftRoutes, listStores } from "./routes/gifts";
+import { giftRoutes, listStores, loadHistory } from "./routes/gifts";
 import { linkPreviewRoutes } from "./routes/link-preview";
 import { peopleRoutes } from "./routes/people";
 import { seasonRoutes } from "./routes/seasons";
@@ -23,16 +24,19 @@ export function createApi() {
     c.header("Cache-Control", "no-store");
   });
 
-  // Public: only login.
+  // Public: only login (password or passkey).
   api.route("/auth", authRoutes);
+  api.route("/auth/passkey", passkeyPublicRoutes); // /login/options, /login/verify
 
   // Everything else needs a session.
   api.use("*", requireSession);
   api.route("/auth", authSessionRoutes);
+  api.route("/auth", passkeySessionRoutes); // /passkey/register/*, /passkeys
   api.route("/people", peopleRoutes);
   api.route("/seasons", seasonRoutes);
   api.route("/gifts", giftRoutes);
   api.get("/stores", async (c) => c.json(await listStores(c.var.db)));
+  api.get("/history", async (c) => c.json(await loadHistory(c)));
   api.route("/dashboard", dashboardRoutes);
   api.route("/activity", activityRoutes);
   api.route("/link-preview", linkPreviewRoutes);

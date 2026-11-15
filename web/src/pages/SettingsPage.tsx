@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { startRegistration, type PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/browser";
 import { api, exportCsvUrl, type ImportResult, type Person, type Season, type SeasonInput, type SeasonKind } from "../api";
 import { allocation, centsToInput, formatCents, formatDate, parseDollars, recipientsOf, SEASON_KIND_LABEL } from "../lib/format";
 import { csvDataRowCount, orderImportRows, parseImportTarget, plural, summarizeImport } from "../lib/csv";
 import { applyTheme, readThemePref, storeThemePref, type ThemePref } from "../lib/theme";
-import { qk, useBudgets, useMe, usePeople } from "../lib/queries";
+import { qk, useBudgets, useMe, usePasskeys, usePeople, usePeopleMap } from "../lib/queries";
+import { birthdaySeasonName, defaultDeviceName, nextBirthday, passkeyError, supportsPasskeys } from "../lib/phase3";
 import { useSeason } from "../lib/season";
 import { AllocationLine, ErrorNote, Loading, PageHeader, PersonBadge, Toggle } from "../components/ui";
-import { IconCheck, IconDownload, IconLogout, IconPlus, IconUpload, IconX } from "../components/Icons";
+import { IconCheck, IconDownload, IconLogout, IconPlus, IconTrash, IconUpload, IconX } from "../components/Icons";
+import { timeAgo } from "../lib/activity";
 import { Money } from "./GiftFormPage";
 
 export default function SettingsPage() {
@@ -29,6 +32,7 @@ export default function SettingsPage() {
           <Theme />
           <ExportCsv />
           <ImportCsv />
+          <Security />
           <Password />
           <Account />
         </div>
@@ -54,6 +58,7 @@ function Section({ id, title, sub, children, right }: { id?: string; title: stri
 
 function Seasons() {
   const { seasons, isLoading } = useSeason();
+  const peopleMap = usePeopleMap();
   const [editing, setEditing] = useState<number | "new" | null>(null);
   useEffect(() => {
     if (!isLoading && seasons.length === 0) setEditing("new");
@@ -84,7 +89,13 @@ function Seasons() {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-bold">{s.name}</span>
                   <span className="tnum block text-[14px] text-muted">
-                    {[SEASON_KIND_LABEL[s.kind], s.date ? formatDate(s.date) : null, `${formatCents(s.overallBudgetCents, { round: true })} budget`].filter(Boolean).join(" · ")}
+                    {[
+                      s.honoreeId && peopleMap.get(s.honoreeId) ? `${SEASON_KIND_LABEL[s.kind]} · ${peopleMap.get(s.honoreeId)!.name}` : SEASON_KIND_LABEL[s.kind],
+                      s.date ? formatDate(s.date) : null,
+                      `${formatCents(s.overallBudgetCents, { round: true })} budget`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 </span>
                 {s.isActive && <span className="rounded-full bg-pine-soft px-2.5 py-0.5 text-[13px] font-semibold text-pine">Active</span>}
@@ -101,6 +112,8 @@ function Seasons() {
 function SeasonForm({ season, onDone }: { season?: Season; onDone: () => void }) {
   const qc = useQueryClient();
   const { setSeasonId, seasons } = useSeason();
+  const people = usePeople();
+  const honorees = recipientsOf(people.data ?? []);
   const year = new Date().getFullYear();
   const [f, setF] = useState({
     name: season?.name ?? `Christmas ${year}`,
@@ -109,9 +122,29 @@ function SeasonForm({ season, onDone }: { season?: Season; onDone: () => void })
     budget: centsToInput(season?.overallBudgetCents ?? null),
     isActive: season?.isActive ?? seasons.length === 0,
     archived: season?.archived ?? false,
+    honoreeId: season?.honoreeId ?? (null as number | null),
   });
+  // New seasons get a suggested name and date until the name is typed over.
+  const [nameTouched, setNameTouched] = useState(!!season);
   const [err, setErr] = useState<string | null>(null);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
+  const suggest = (kind: SeasonKind, honoreeId: number | null) => {
+    const next = { ...f, kind, honoreeId: kind === "birthday" || kind === "anniversary" ? honoreeId : null };
+    if (!season) {
+      const person = honorees.find((p) => p.id === next.honoreeId);
+      const nb = person ? nextBirthday(person.birthday) : null;
+      if (kind === "christmas") {
+        if (!nameTouched) next.name = `Christmas ${year}`;
+        next.date = `${year}-12-25`;
+      } else if (kind === "birthday") {
+        if (person && nb) next.date = nb.date;
+        if (!nameTouched) next.name = person ? birthdaySeasonName(person.name, nb?.date ?? `${year}`) : "";
+      } else if (kind === "anniversary" && !nameTouched) next.name = `Anniversary ${year}`;
+      else if (!nameTouched && f.kind !== kind) next.name = "";
+    }
+    setF(next);
+  };
+  const honoree = honorees.find((p) => p.id === f.honoreeId);
 
   const save = useMutation({
     mutationFn: (input: SeasonInput) => (season ? api.seasons.update(season.id, input) : api.seasons.create(input as SeasonInput & { name: string; kind: SeasonKind })),
@@ -126,32 +159,73 @@ function SeasonForm({ season, onDone }: { season?: Season; onDone: () => void })
   function submit(e: FormEvent) {
     e.preventDefault();
     const cents = parseDollars(f.budget) ?? 0;
+    if (f.kind === "birthday" && !f.honoreeId) return setErr("Choose whose birthday it is.");
     if (!f.name.trim()) return setErr("Add a name.");
     if (!f.date) return setErr("Add the date of the occasion.");
     if (Number.isNaN(cents)) return setErr("Enter the budget in dollars, like 1500.");
     setErr(null);
-    save.mutate({ name: f.name.trim(), kind: f.kind, date: f.date, overallBudgetCents: cents, isActive: f.isActive, archived: f.archived });
+    save.mutate({
+      name: f.name.trim(),
+      kind: f.kind,
+      date: f.date,
+      overallBudgetCents: cents,
+      isActive: f.isActive,
+      archived: f.archived,
+      honoreeId: f.kind === "birthday" || f.kind === "anniversary" ? f.honoreeId : null,
+    });
   }
 
   return (
     <form onSubmit={submit} className="mb-3 space-y-3 rounded-xl bg-surface-2 p-4" noValidate>
-      <div>
-        <label htmlFor={`sn${season?.id ?? "new"}`} className="label">Name</label>
-        <input id={`sn${season?.id ?? "new"}`} className="field" value={f.name} onChange={(e) => set("name", e.target.value)} />
-      </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label htmlFor={`sk${season?.id ?? "new"}`} className="label">Occasion</label>
-          <select id={`sk${season?.id ?? "new"}`} className="field" value={f.kind} onChange={(e) => set("kind", e.target.value as SeasonKind)}>
+          <select id={`sk${season?.id ?? "new"}`} className="field" value={f.kind} onChange={(e) => suggest(e.target.value as SeasonKind, f.honoreeId)}>
             {(Object.keys(SEASON_KIND_LABEL) as SeasonKind[]).map((k) => (
               <option key={k} value={k}>{SEASON_KIND_LABEL[k]}</option>
             ))}
           </select>
         </div>
-        <div>
-          <label htmlFor={`sd${season?.id ?? "new"}`} className="label">Date</label>
-          <input id={`sd${season?.id ?? "new"}`} type="date" className="field" value={f.date} onChange={(e) => set("date", e.target.value)} />
-        </div>
+        {(f.kind === "birthday" || f.kind === "anniversary") && (
+          <div>
+            <label htmlFor={`sh${season?.id ?? "new"}`} className="label">{f.kind === "birthday" ? "Whose birthday?" : "For"}</label>
+            <select
+              id={`sh${season?.id ?? "new"}`}
+              className="field"
+              value={f.honoreeId ?? ""}
+              onChange={(e) => suggest(f.kind, e.target.value ? Number(e.target.value) : null)}
+              aria-invalid={f.kind === "birthday" && !f.honoreeId && !!err}
+            >
+              <option value="">{f.kind === "birthday" ? "Choose…" : "Both of us"}</option>
+              {honorees.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.emoji ? `${p.emoji} ` : ""}
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+      {f.kind === "birthday" && honoree && !honoree.birthday && (
+        <p className="-mt-1 text-[13px] text-muted">No birthday saved for {honoree.name}, so pick the date below.</p>
+      )}
+      <div>
+        <label htmlFor={`sn${season?.id ?? "new"}`} className="label">Name</label>
+        <input
+          id={`sn${season?.id ?? "new"}`}
+          className="field"
+          value={f.name}
+          onChange={(e) => {
+            setNameTouched(true);
+            set("name", e.target.value);
+          }}
+          placeholder={f.kind === "birthday" ? "Ava's Birthday 2027" : undefined}
+        />
+      </div>
+      <div>
+        <label htmlFor={`sd${season?.id ?? "new"}`} className="label">Date</label>
+        <input id={`sd${season?.id ?? "new"}`} type="date" className="field" value={f.date} onChange={(e) => set("date", e.target.value)} />
       </div>
       <div>
         <label htmlFor={`sb${season?.id ?? "new"}`} className="label">Overall budget</label>
@@ -258,6 +332,114 @@ function BudgetRow({
         <Money id={`s${person.id}`} value={s} onChange={setS} />
       </div>
     </>
+  );
+}
+
+/** Passkeys (Face ID / Touch ID): add one for this device, see and remove the rest. */
+function Security() {
+  const qc = useQueryClient();
+  const list = usePasskeys();
+  const supported = supportsPasskeys();
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState(() => defaultDeviceName(typeof navigator !== "undefined" ? navigator.userAgent : ""));
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const add = useMutation({
+    mutationFn: async () => {
+      const optionsJSON = (await api.auth.passkeyRegisterOptions()) as PublicKeyCredentialCreationOptionsJSON;
+      const response = await startRegistration({ optionsJSON });
+      return api.auth.passkeyRegisterVerify(response, name.trim() || "Passkey");
+    },
+    onMutate: () => setNote(null),
+    onSuccess: () => {
+      setNote({ ok: true, text: `Added “${name.trim() || "Passkey"}”. Next time, sign in with Face ID or your device.` });
+      setAdding(false);
+      qc.invalidateQueries({ queryKey: qk.passkeys });
+    },
+    onError: (e) => {
+      const err = passkeyError(e, "register");
+      setNote({ ok: false, text: err.message });
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.auth.removePasskey(id),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.passkeys }),
+  });
+
+  const keys = list.data ?? [];
+  return (
+    <Section id="security" title="Security" sub="Passkeys let you sign in with Face ID, Touch ID, or your phone's lock. Your password keeps working.">
+      {list.isLoading ? (
+        <Loading />
+      ) : (
+        <>
+          <ErrorNote error={list.error || remove.error} />
+          {keys.length > 0 && (
+            <ul className="mb-4 divide-y divide-line rounded-xl border border-line">
+              {keys.map((k) => (
+                <li key={k.id} className="flex min-h-[60px] items-center gap-3 py-2 pl-3.5 pr-1.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-pine-soft text-[18px]" aria-hidden="true">🔑</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{k.name || "Passkey"}</span>
+                    <span className="block truncate text-[13px] text-muted">
+                      Added {formatDate(k.createdAt.slice(0, 10))}
+                      {k.lastUsedAt ? ` · last used ${timeAgo(k.lastUsedAt)}` : " · not used yet"}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted hover:bg-berry-soft hover:text-berry"
+                    aria-label={`Remove passkey ${k.name}`}
+                    disabled={remove.isPending}
+                    onClick={() => window.confirm(`Remove the passkey “${k.name}”? You can still sign in with your password.`) && remove.mutate(k.id)}
+                  >
+                    <IconTrash size={19} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {note && (
+            <p role="status" className={`mb-3 rounded-xl px-4 py-3 text-[15px] font-medium ${note.ok ? "bg-pine-soft text-pine" : "bg-gold-soft text-gold"}`}>
+              {note.text}
+            </p>
+          )}
+          {!supported ? (
+            <p className="rounded-xl bg-surface-2 px-4 py-3 text-[14px] text-muted">This browser doesn't support passkeys. Try Safari on an iPhone, or a recent Chrome.</p>
+          ) : adding ? (
+            <form
+              className="space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                add.mutate();
+              }}
+            >
+              <div>
+                <label htmlFor="pk-name" className="label">Name this device</label>
+                <input id="pk-name" className="field" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} autoComplete="off" />
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className="btn-quiet flex-1" onClick={() => setAdding(false)}>Cancel</button>
+                <button type="submit" className="btn-primary flex-[2]" disabled={add.isPending}>
+                  {add.isPending ? "Waiting for device…" : "Continue"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button
+              type="button"
+              className={keys.length ? "btn-quiet w-full" : "btn-primary w-full"}
+              onClick={() => {
+                setNote(null);
+                setAdding(true);
+              }}
+            >
+              <IconPlus size={20} /> Add a passkey
+            </button>
+          )}
+        </>
+      )}
+    </Section>
   );
 }
 

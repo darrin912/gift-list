@@ -2,11 +2,13 @@ import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Gift, type GiftCategory, type GiftInput, type GiftStatus } from "../api";
-import { ALL_STATUSES, CATEGORIES, CATEGORY_LABEL, centsToInput, isGiverOnly, isHttpUrl, parseDollars, STATUS_LABEL } from "../lib/format";
+import { ALL_STATUSES, CATEGORIES, CATEGORY_LABEL, centsToInput, formatCents, isGiverOnly, isHttpUrl, parseDollars, STATUS_LABEL } from "../lib/format";
 import { looksLikeUrl, mergePreview } from "../lib/lists";
-import { qk, useInvalidateGifts, usePeople, useStores } from "../lib/queries";
+import { timeAgo } from "../lib/activity";
+import { canCheckSimilar, groupSeasons, priceWatchInfo, similarHint, similarHintText } from "../lib/phase3";
+import { qk, useDebounced, useInvalidateGifts, usePeople, useStores } from "../lib/queries";
 import { useSeason } from "../lib/season";
-import { ErrorNote, Loading, Sheet, Toggle } from "../components/ui";
+import { ErrorNote, Loading, MarkdownHint, Sheet, Toggle } from "../components/ui";
 import { IconSparkle, IconTrash } from "../components/Icons";
 
 export default function GiftFormPage() {
@@ -97,6 +99,7 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
             .filter((n) => Number.isInteger(n) && n > 0)
         : ([] as number[])),
     description: gift?.description ?? "",
+    watchPrice: gift?.watchPrice ?? false,
   }));
   const [formError, setFormError] = useState<string | null>(null);
   const [imgOk, setImgOk] = useState(true);
@@ -181,6 +184,8 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
       returnBy: f.returnBy || null,
       giverIds: f.giverIds,
       description: f.description,
+      // Watching needs a link; clearing the link turns the watch off.
+      watchPrice: f.watchPrice && isHttpUrl(f.url.trim()),
     });
   }
 
@@ -212,7 +217,16 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
     >
       <form id="gift-form" onSubmit={submit} className="space-y-5" noValidate>
         <Field label="What is it?" htmlFor="title">
-          <input id="title" className="field text-[18px] font-semibold" value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="LEGO tree house" autoFocus={isNew} />
+          <input
+            id="title"
+            className="field text-[18px] font-semibold"
+            value={f.title}
+            onChange={(e) => set("title", e.target.value)}
+            placeholder="LEGO tree house"
+            autoFocus={isNew}
+            aria-describedby="similar-hint"
+          />
+          <GivenBefore recipientId={f.recipientId} title={f.title} excludeId={gift?.id} recipientName={people.data?.find((p) => p.id === f.recipientId)?.name ?? ""} />
         </Field>
 
         <Field label="Link" htmlFor="url">
@@ -257,6 +271,12 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
           ) : (
             <p className="mt-1.5 text-[13px] text-muted">Paste a link and we'll try to fill in the title, picture, price, and store (only the empty ones).</p>
           )}
+          {isHttpUrl(f.url.trim()) && (
+            <div className="card mt-3 px-4">
+              <Toggle checked={f.watchPrice} onChange={(v) => set("watchPrice", v)} label="Watch price" hint="We check this link once a day and flag drops." />
+              {gift?.url && <PriceCheck gift={gift} linkChanged={f.url.trim() !== gift.url} />}
+            </div>
+          )}
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
@@ -273,10 +293,14 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
           </Field>
           <Field label="Season" htmlFor="season">
             <select id="season" className="field" value={f.seasonId ?? "none"} onChange={(e) => set("seasonId", e.target.value === "none" ? null : Number(e.target.value))}>
-              {seasons.filter((s) => !s.archived || s.id === f.seasonId).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
+              {groupSeasons(seasons.filter((s) => !s.archived || s.id === f.seasonId)).map((g) => (
+                <optgroup key={g.key} label={g.label}>
+                  {g.seasons.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
               <option value="none">Ideas inbox</option>
             </select>
@@ -412,6 +436,7 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
 
         <Field label="Notes" htmlFor="desc">
           <textarea id="desc" className="field min-h-[96px]" value={f.description} onChange={(e) => set("description", e.target.value)} placeholder="Color, size, where to hide it…" />
+          <MarkdownHint />
         </Field>
 
         {formError && <p role="alert" className="rounded-xl bg-berry-soft px-4 py-3 text-[15px] font-medium text-berry">{formError}</p>}
@@ -420,6 +445,82 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
         <button type="submit" className="hidden" aria-hidden="true" tabIndex={-1} />
       </form>
     </Sheet>
+  );
+}
+
+/** "🔁 Looks like Ava got LEGO Set in Christmas 2025", checked as you type (debounced). */
+function GivenBefore({ recipientId, title, excludeId, recipientName }: { recipientId: number; title: string; excludeId?: number; recipientName: string }) {
+  const t = useDebounced(title.trim(), 450);
+  const enabled = recipientId > 0 && canCheckSimilar(t);
+  const q = useQuery({
+    queryKey: qk.similar(recipientId, t, excludeId),
+    queryFn: () => api.gifts.similar({ recipientId, title: t, excludeId }),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const items = enabled ? (q.data ?? []) : [];
+  const h = similarHint(items, recipientName);
+  return (
+    <div id="similar-hint" aria-live="polite">
+      {h && (
+        <p className="mt-2 flex gap-2 rounded-xl bg-gold-soft px-3 py-2 text-[14px] leading-snug text-ink" aria-label={similarHintText(items, recipientName)}>
+          <span aria-hidden="true">🔁</span>
+          <span>
+            {h.lead} <i className="font-semibold">{h.title}</i> {h.where}
+            {h.more && <span className="text-muted"> {h.more}</span>}
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Last check, lowest price, and an on-demand "Check now" for a saved gift's link. */
+function PriceCheck({ gift, linkChanged }: { gift: Gift; linkChanged: boolean }) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateGifts();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [g, setG] = useState(gift);
+  const check = useMutation({
+    mutationFn: () => api.gifts.checkPrice(gift.id),
+    onMutate: () => setMsg(null),
+    onSuccess: (next) => {
+      setG(next);
+      qc.setQueryData(qk.gift(gift.id), next);
+      invalidate();
+      const dropped = !!next.priceDroppedAt && next.priceDroppedAt !== gift.priceDroppedAt;
+      if (dropped && next.lastSeenPriceCents != null) setMsg({ ok: true, text: `⬇ Price dropped to ${formatCents(next.lastSeenPriceCents)}!` });
+      else if (next.lastSeenPriceCents != null) setMsg({ ok: true, text: `It's ${formatCents(next.lastSeenPriceCents)} right now.` });
+      else setMsg({ ok: false, text: "Couldn't find a price on that page right now." });
+    },
+    onError: (e) =>
+      setMsg({ ok: false, text: e instanceof ApiError && e.status === 429 ? "That's a lot of checks. Try again in a minute." : e instanceof ApiError ? e.message : "Couldn't reach that page right now." }),
+  });
+  const info = priceWatchInfo({ ...g, watchPrice: true });
+  const meta = [
+    g.lastCheckedAt ? `Checked ${timeAgo(g.lastCheckedAt)}` : "Not checked yet",
+    g.lastSeenPriceCents != null ? `last ${formatCents(g.lastSeenPriceCents)}` : null,
+    info.lowest,
+  ].filter(Boolean);
+  return (
+    <div className="border-t border-line py-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1 text-[14px] text-muted">
+          {info.dropped && <span className="mb-1 mr-2 inline-flex rounded-full bg-pine-soft px-2 py-0.5 text-[13px] font-semibold text-pine">⬇ Price drop</span>}
+          <span className="tnum">{meta.join(" · ")}</span>
+        </div>
+        <button type="button" className="btn-quiet min-h-[40px] shrink-0 !px-3.5 text-[15px]" onClick={() => check.mutate()} disabled={check.isPending}>
+          {check.isPending ? "Checking…" : "Check now"}
+        </button>
+      </div>
+      {linkChanged && <p className="mt-1 text-[13px] text-muted">Checks the saved link. Save first to check the new one.</p>}
+      {msg && (
+        <p role="status" className={`mt-2 rounded-xl px-3 py-2 text-[14px] ${msg.ok ? "bg-pine-soft text-pine" : "bg-gold-soft text-gold"}`}>
+          {msg.text}
+        </p>
+      )}
+    </div>
   );
 }
 

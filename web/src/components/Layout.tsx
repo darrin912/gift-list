@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useSeason } from "../lib/season";
+import { groupSeasons } from "../lib/phase3";
 import { IconGift, IconHome, IconLists, IconPeople, IconSettings } from "./Icons";
 
 const tabs = [
@@ -21,11 +22,15 @@ function SeasonSwitcher() {
         onChange={(e) => setSeasonId(Number(e.target.value))}
         className="h-10 min-w-0 max-w-[13rem] cursor-pointer appearance-none truncate rounded-full border bg-[color-mix(in_srgb,var(--band-ink)_14%,transparent)] pl-4 pr-9 text-[15px] font-semibold text-band-ink outline-none focus-visible:ring-2 focus-visible:ring-band-ink"
       >
-        {seasons.map((s) => (
-          <option key={s.id} value={s.id} className="bg-surface text-ink">
-            {s.name}
-            {s.archived ? " (archived)" : ""}
-          </option>
+        {groupSeasons(seasons).map((g) => (
+          <optgroup key={g.key} label={g.label} className="bg-surface text-ink">
+            {g.seasons.map((s) => (
+              <option key={s.id} value={s.id} className="bg-surface text-ink">
+                {s.name}
+                {s.archived ? " (archived)" : ""}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
       <svg className="pointer-events-none absolute right-3 text-band-ink" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">

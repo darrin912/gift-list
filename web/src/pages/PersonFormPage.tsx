@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Person, type PersonInput, type PersonKind } from "../api";
 import { KIND_LABEL } from "../lib/format";
 import { usePeople } from "../lib/queries";
-import { ErrorNote, Loading, PersonBadge, Sheet, Toggle } from "../components/ui";
+import { ErrorNote, Loading, MarkdownHint, PersonBadge, Sheet, Toggle } from "../components/ui";
 import { IconPlus, IconTrash, IconX } from "../components/Icons";
 
 export const PERSON_COLORS = ["#c0392b", "#d35400", "#c49a1a", "#2e8b57", "#1f7a8c", "#3a6ea5", "#6c4fb0", "#b0417a", "#5d6d63"];
@@ -254,6 +254,7 @@ function PersonForm({ person, onClose, afterDelete }: { person?: Person; onClose
         <div>
           <label htmlFor="notes" className="label">Notes</label>
           <textarea id="notes" className="field min-h-[96px]" value={f.notes} onChange={(e) => set("notes", e.target.value)} />
+          <MarkdownHint />
         </div>
 
         {err && <p role="alert" className="rounded-xl bg-berry-soft px-4 py-3 text-[15px] font-medium text-berry">{err}</p>}

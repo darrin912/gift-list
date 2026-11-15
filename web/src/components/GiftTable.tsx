@@ -4,7 +4,8 @@ import type { Gift, GiftStatus, Person } from "../api";
 import { ALL_STATUSES, effectivePriceCents, formatCents, STATUS_LABEL } from "../lib/format";
 import { sortGifts, type SortDir, type SortKey } from "../lib/lists";
 import { useUpdateGift } from "../lib/queries";
-import { giversLabel } from "./GiftCard";
+import { priceWatchInfo } from "../lib/phase3";
+import { giversLabel, PriceDropBadge } from "./GiftCard";
 import { IconStar } from "./Icons";
 import { statusVar } from "./ui";
 
@@ -67,6 +68,7 @@ export default function GiftTable({ gifts, map, showRecipient = true }: { gifts:
           {rows.map((g) => {
             const r = map.get(g.recipientId);
             const price = effectivePriceCents(g);
+            const watch = priceWatchInfo(g);
             return (
               <tr key={g.id} className="group cursor-pointer border-b border-line last:border-0 hover:bg-surface-2" onClick={() => navigate(`/gifts/${g.id}`)}>
                 <th scope="row" className="sticky left-0 z-10 max-w-[11rem] bg-surface px-3 py-2 font-semibold group-hover:bg-surface-2 sm:max-w-[16rem]" style={{ boxShadow: `inset 3px 0 0 ${r?.color || "var(--line)"}` }}>
@@ -102,6 +104,8 @@ export default function GiftTable({ gifts, map, showRecipient = true }: { gifts:
                 <td className="tnum whitespace-nowrap px-3 py-2 text-right">
                   {price ? formatCents(price) : <span className="text-muted">–</span>}
                   {price > 0 && g.actualPriceCents === null && <span className="ml-1 text-[12px] text-muted">est.</span>}
+                  {watch.dropped && <PriceDropBadge className="ml-1.5" />}
+                  {watch.lowest && <span className="block text-[12px] text-muted">{watch.lowest}</span>}
                 </td>
                 <td className="max-w-[9rem] truncate whitespace-nowrap px-3 py-2 text-muted">{g.store || "–"}</td>
                 <td className="max-w-[10rem] truncate whitespace-nowrap px-3 py-2 text-muted">{giversLabel(g.giverIds, map) || "–"}</td>

@@ -5,6 +5,7 @@ import { formatCents, formatDate, isGiverOnly, ratio, returnPhrase, ALL_STATUSES
 import { useActivity, usePeople, usePeopleMap, useDashboard } from "../lib/queries";
 import { ActivityRow } from "../components/Activity";
 import { useSeason } from "../lib/season";
+import { honoreeFirst, showFairness } from "../lib/phase3";
 import { AllocationLine, EmptyState, ErrorNote, Loading, MoneyBar, PageHeader, PersonBadge, statusVar } from "../components/ui";
 import { IconChevronRight } from "../components/Icons";
 
@@ -47,7 +48,7 @@ export default function DashboardPage() {
             <RecentActivity />
           </div>
           <div className="min-w-0 space-y-5">
-            {kids.length === 0 ? <AddPeoplePrompt /> : <Fairness d={dash.data} map={map} />}
+            {kids.length === 0 ? <AddPeoplePrompt /> : showFairness(dash.data.season ?? season) && <Fairness d={dash.data} map={map} />}
             <PeopleCards d={dash.data} map={map} />
           </div>
         </div>
@@ -169,9 +170,14 @@ function Fairness({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
 }
 
 function PeopleCards({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
-  const rows = d.people
-    .filter((r) => map.has(r.personId) && !isGiverOnly(map.get(r.personId)!))
-    .sort((a, b) => (map.get(a.personId)!.sortOrder ?? 0) - (map.get(b.personId)!.sortOrder ?? 0));
+  // Birthday seasons lead with the birthday person.
+  const rows = honoreeFirst(
+    d.people
+      .filter((r) => map.has(r.personId) && !isGiverOnly(map.get(r.personId)!))
+      .sort((a, b) => (map.get(a.personId)!.sortOrder ?? 0) - (map.get(b.personId)!.sortOrder ?? 0)),
+    d.season,
+  );
+  const honoree = d.season?.kind === "birthday" ? d.season.honoreeId : null;
   if (!rows.length) return null;
   return (
     <section aria-labelledby="people-h">
@@ -179,7 +185,7 @@ function PeopleCards({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
       <ul className="grid grid-cols-1 gap-3">
         {rows.map((r) => (
           <li key={r.personId}>
-            <PersonCard r={r} person={map.get(r.personId)!} />
+            <PersonCard r={r} person={map.get(r.personId)!} honoree={r.personId === honoree} />
           </li>
         ))}
       </ul>
@@ -187,14 +193,21 @@ function PeopleCards({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
   );
 }
 
-function PersonCard({ r, person }: { r: DashboardPerson; person: Person }) {
+function PersonCard({ r, person, honoree = false }: { r: DashboardPerson; person: Person; honoree?: boolean }) {
   const used = r.spentCents + r.committedCents;
   return (
-    <Link to={`/people/${person.id}`} className="card block p-4 transition-colors hover:border-pine">
+    <Link
+      to={`/people/${person.id}`}
+      className={`card block p-4 transition-colors hover:border-pine ${honoree ? "border-2" : ""}`}
+      style={honoree ? { borderColor: person.color || "var(--gold)", background: `color-mix(in srgb, ${person.color || "var(--gold)"} 6%, var(--surface))` } : undefined}
+    >
       <div className="flex items-center gap-3">
-        <PersonBadge person={person} />
+        <PersonBadge person={person} size={honoree ? 44 : 36} />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-bold">{person.name}</div>
+          <div className="flex items-center gap-2">
+            <span className="truncate font-bold">{person.name}</span>
+            {honoree && <span className="shrink-0 rounded-full bg-gold-soft px-2 py-0.5 text-[12px] font-bold text-gold">🎂 Birthday</span>}
+          </div>
           {r.hidden ? (
             <div className="text-[15px] text-muted">🤫 Surprises hidden</div>
           ) : (

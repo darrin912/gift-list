@@ -247,3 +247,59 @@ body {
 .sheet-in {
   animation: sheet-in 0.22s ease-out;
 }
+
+/* Rendered Markdown (lib/markdown.ts). */
+.md {
+  overflow-wrap: anywhere;
+}
+.md > * + * {
+  margin-top: 0.4em;
+}
+.md a {
+  color: var(--pine);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.md ul,
+.md ol {
+  padding-left: 1.25em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li::marker {
+  color: var(--muted);
+}
+.md code {
+  border-radius: 6px;
+  background: var(--surface-2);
+  padding: 0.05em 0.35em;
+  font-size: 0.92em;
+}
+
+/* Name draw: names flicker while shuffling, then each pair turns over like a gift tag. */
+@keyframes draw-shuffle {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-6px) rotate(4deg); }
+}
+.draw-shuffle {
+  animation: draw-shuffle 0.45s ease-in-out infinite;
+}
+@keyframes draw-reveal {
+  from {
+    opacity: 0;
+    transform: perspective(600px) rotateX(-70deg) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.draw-reveal {
+  animation: draw-reveal 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  transform-origin: top center;
+}

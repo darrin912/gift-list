@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { GiftStatus, Person } from "../api";
 import { ApiError } from "../api";
 import { formatCents, ratio, STATUS_FLOW, STATUS_LABEL } from "../lib/format";
+import { renderMarkdown } from "../lib/markdown";
 import { IconX } from "./Icons";
 
 export const statusVar = (s: GiftStatus) => `var(--st-${s})`;
@@ -254,3 +255,22 @@ export function AllocationLine({ allocated, unallocated, overall, className = "m
   );
 }
 
+
+/**
+ * Read-only Markdown (gift descriptions, person notes). renderMarkdown escapes all raw HTML
+ * first and only emits its own small set of tags, so the innerHTML here is safe.
+ */
+export function Markdown({ text, className = "" }: { text: string | null | undefined; className?: string }) {
+  const html = renderMarkdown(text);
+  if (!html) return null;
+  return <div className={`md ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+/** The small hint under Markdown-capable textareas. */
+export function MarkdownHint() {
+  return (
+    <p className="mt-1.5 text-[13px] text-muted">
+      Markdown supported: <b>**bold**</b>, <i>*italics*</i>, - lists, [links](https://…)
+    </p>
+  );
+}

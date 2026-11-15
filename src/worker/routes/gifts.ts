@@ -1,12 +1,20 @@
-import { and, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { giftGivers, gifts, people, seasons } from "../../db/schema";
 import { createdSummary, deletedSummary, logGiftActivity, updatedSummary } from "../activity";
 import { getVisibleGift, loadGiverIds, loadVisibleGifts } from "../gift-access";
 import { fail, idParam, parseJson, parseQuery } from "../http";
-import { toGift } from "../serialize";
+import { checkFetchUrl } from "../link-preview";
+import { checkGiftPrice } from "../price-watch";
+import { takeRateLimit } from "../rate-limit";
+import { titlesSimilar } from "../rules";
+import { toGift, toSeason } from "../serialize";
 import type { AppEnv, Variables } from "../types";
-import { giftCreate, giftPatch, giftQuery } from "../validation";
+import { giftCreate, giftPatch, giftQuery, historyQuery, similarQuery } from "../validation";
+
+export const CHECK_PRICE_MAX_PER_MINUTE = 10;
+export const SIMILAR_MAX = 5;
+const SIMILAR_EXCLUDED_STATUSES = ["returned", "idea"] as const;
 
 type Db = Variables["db"];
 
@@ -101,6 +109,67 @@ giftRoutes.post("/", async (c) => {
   return c.json(toGift(gift, giverIds), 201);
 });
 
+/**
+ * GET /gifts/similar: the "given before" warning. Same recipient, other seasons (not the season
+ * being edited), similar normalized title, not returned/idea, surprise rule applied.
+ */
+giftRoutes.get("/similar", async (c) => {
+  const f = parseQuery(c, similarQuery);
+  const db = c.var.db;
+  const user = c.var.user;
+  const today = c.var.today;
+
+  let currentSeasonId: number | null | undefined;
+  if (f.seasonId !== undefined) currentSeasonId = f.seasonId === "none" ? null : f.seasonId;
+  if (currentSeasonId === undefined && f.excludeId !== undefined) {
+    const self = (await loadVisibleGifts(db, user, today, eq(gifts.id, f.excludeId)))[0];
+    if (self) currentSeasonId = self.gift.seasonId;
+  }
+  if (currentSeasonId === undefined) {
+    const active = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.isActive, true)).get();
+    currentSeasonId = active?.id ?? null;
+  }
+
+  const conds: SQL[] = [
+    eq(gifts.recipientId, f.recipientId),
+    isNotNull(gifts.seasonId),
+    notInArray(gifts.status, [...SIMILAR_EXCLUDED_STATUSES]),
+  ];
+  if (currentSeasonId != null) conds.push(ne(gifts.seasonId, currentSeasonId));
+  if (f.excludeId !== undefined) conds.push(ne(gifts.id, f.excludeId));
+  const rows = await loadVisibleGifts(db, user, today, and(...conds));
+  const matches = rows
+    .filter((r) => r.season && titlesSimilar(f.title, r.gift.title))
+    .sort((a, b) => (a.season!.date < b.season!.date ? 1 : a.season!.date > b.season!.date ? -1 : b.gift.id - a.gift.id))
+    .slice(0, SIMILAR_MAX);
+  return c.json(
+    matches.map((r) => ({
+      giftId: r.gift.id,
+      title: r.gift.title,
+      seasonName: r.season!.name,
+      seasonDate: r.season!.date,
+      status: r.gift.status,
+    })),
+  );
+});
+
+giftRoutes.post("/:id/check-price", async (c) => {
+  const id = idParam(c);
+  const db = c.var.db;
+  const { gift } = await getVisibleGift(db, c.var.user, c.var.today, id);
+  if (!gift.url) fail(400, "This gift has no link to check");
+  const check = checkFetchUrl(gift.url);
+  if (!check.ok) fail(400, check.reason);
+  const allowed = await takeRateLimit(db, `check-price:${c.var.user.id}`, CHECK_PRICE_MAX_PER_MINUTE, 60_000);
+  if (!allowed) {
+    c.header("Retry-After", "60");
+    fail(429, "Too many price checks. Try again in a minute.");
+  }
+  const result = await checkGiftPrice(db, gift);
+  const givers = await loadGiverIds(db, [id]);
+  return c.json(toGift(result.gift, givers.get(id) ?? []));
+});
+
 giftRoutes.get("/:id", async (c) => {
   const id = idParam(c);
   const { gift } = await getVisibleGift(c.var.db, c.var.user, c.var.today, id);
@@ -165,4 +234,39 @@ export async function listStores(db: Db): Promise<string[]> {
     .orderBy(desc(sql`count(*)`), gifts.store)
     .all();
   return rows.map((r) => r.store);
+}
+
+/**
+ * GET /history?personId=: the person's gifts grouped by season, newest season first. Leaves out
+ * the active season, the ideas inbox, and (surprise rule) anything hidden from the viewer.
+ */
+export async function loadHistory(c: import("hono").Context<AppEnv>) {
+  const { personId } = parseQuery(c, historyQuery);
+  const db = c.var.db;
+  const rows = await loadVisibleGifts(
+    db,
+    c.var.user,
+    c.var.today,
+    and(eq(gifts.recipientId, personId), isNotNull(gifts.seasonId), eq(seasons.isActive, false)),
+  );
+  const bySeason = new Map<number, { season: NonNullable<(typeof rows)[number]["season"]>; gifts: typeof rows }>();
+  for (const r of rows) {
+    if (!r.season) continue;
+    const entry = bySeason.get(r.season.id) ?? { season: r.season, gifts: [] };
+    entry.gifts.push(r);
+    bySeason.set(r.season.id, entry);
+  }
+  const groups = [...bySeason.values()].sort((a, b) =>
+    a.season.date < b.season.date ? 1 : a.season.date > b.season.date ? -1 : b.season.id - a.season.id,
+  );
+  const givers = await loadGiverIds(
+    db,
+    rows.map((r) => r.gift.id),
+  );
+  return groups.map((g) => ({
+    season: toSeason(g.season),
+    gifts: g.gifts
+      .sort((a, b) => (a.gift.createdAt < b.gift.createdAt ? -1 : a.gift.createdAt > b.gift.createdAt ? 1 : a.gift.id - b.gift.id))
+      .map((r) => toGift(r.gift, givers.get(r.gift.id) ?? [])),
+  }));
 }

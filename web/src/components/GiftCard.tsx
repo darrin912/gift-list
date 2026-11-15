@@ -1,9 +1,19 @@
 import { Link } from "react-router-dom";
 import type { Gift, GiftStatus, Person } from "../api";
 import { ADVANCE_LABEL, ALL_STATUSES, CATEGORY_LABEL, effectivePriceCents, formatCents, nextStatus, returnLevel, returnPhrase, STATUS_LABEL } from "../lib/format";
+import { priceWatchInfo } from "../lib/phase3";
 import { useUpdateGift } from "../lib/queries";
 import { IconCheck, IconStar } from "./Icons";
-import { StatusTrack, statusVar } from "./ui";
+import { Markdown, StatusTrack, statusVar } from "./ui";
+
+/** "⬇ Price drop" pill (price watch). */
+export function PriceDropBadge({ className = "" }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full bg-pine-soft px-2 py-0.5 text-[12px] font-bold text-pine ${className}`}>
+      <span aria-hidden="true">⬇&nbsp;</span>Price drop
+    </span>
+  );
+}
 
 export function giversLabel(ids: number[], map: Map<number, Person>): string {
   const names = ids.map((id) => map.get(id)?.name).filter(Boolean) as string[];
@@ -21,6 +31,7 @@ export default function GiftCard({ gift, map, showRecipient = true }: { gift: Gi
   const from = giversLabel(gift.giverIds, map);
   const setStatus = (status: GiftStatus) => update.mutate({ id: gift.id, input: { status } });
   const color = recipient?.color || "var(--line)";
+  const watch = priceWatchInfo(gift);
 
   return (
     <article
@@ -50,12 +61,19 @@ export default function GiftCard({ gift, map, showRecipient = true }: { gift: Gi
             {gift.actualPriceCents === null && gift.estPriceCents !== null && <div className="text-[12px] text-muted">est.</div>}
           </div>
         </div>
+        {(watch.dropped || watch.lowest) && (
+          <p className="tnum mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
+            {watch.dropped && <PriceDropBadge />}
+            {watch.lowest}
+          </p>
+        )}
         {level && gift.returnBy && (
           <p className="mt-2 inline-flex rounded-full px-2.5 py-0.5 text-[13px] font-semibold" style={{ color: level === "red" ? "var(--berry)" : "var(--gold)", background: level === "red" ? "var(--berry-soft)" : "var(--gold-soft)" }}>
             {returnPhrase(gift.returnBy)}
           </p>
         )}
       </Link>
+      {gift.description?.trim() && <Markdown text={gift.description} className="line-clamp-3 -mt-1.5 pb-3 pl-9 pr-4 text-[14px] text-muted" />}
       <div className="flex items-center gap-2 border-t border-line py-2 pl-9 pr-2">
         <label className="relative flex min-h-[44px] flex-1 items-center gap-2.5" title="Change status">
           <StatusTrack status={gift.status} />
