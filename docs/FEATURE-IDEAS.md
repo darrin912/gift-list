@@ -1,61 +1,48 @@
 # Feature Ideas (from research)
 
-These are ideas gathered from open-source gift apps, spreadsheet templates, and commercial gift-tracking apps. Each is tagged with the phase where it would fit: **P1** = MVP, **P2** = soon after, **P3** = someday. Items marked ✅ are already in the [plan](PLAN.md).
+These are the features gathered from open-source gift apps, spreadsheet templates, and commercial gift-tracking apps, and what we decided about each. The phase numbers match [PLAN.md](PLAN.md).
 
-## From spreadsheet templates
-| Idea | Seen in | Phase |
+## In scope
+| Feature | Inspired by | Phase |
 |---|---|---|
-| ✅ Budget per person vs. actual spent vs. left to spend | Financial Aha, Payhip, Producing Paradise | P1 |
-| ✅ Overall total budget, spent, and remaining | Producing Paradise Google Sheets guide | P1 |
-| ✅ Store/website column | Spreadsheet Daddy | P1 |
-| ✅ Status pipeline: Idea → Ordered → Bought → Wrapped → Given | Spreadsheet Daddy, Getly | P1 |
-| **Return-by dates** that turn amber as the deadline nears and red once it passes | Etsy gift tracker template | P2 |
-| **Main vs. stocking gift type**, with a count of stocking gifts per person | Airtable stocking template | P1 |
-| Import from an existing spreadsheet (CSV) | (our own need) | P2 |
+| Budget per person and overall, with spent, committed, and remaining (one shared pot) | Financial Aha, Payhip, Producing Paradise, Santa's Bag | 1 |
+| Store, order number, and tracking link per gift | Spreadsheet Daddy, GiftList | 1 |
+| Status pipeline: idea → planned → ordered → received → wrapped → given / returned | Spreadsheet Daddy, Getly, Santa's Bag | 1 |
+| Return-by dates that turn amber, then red | Etsy tracker template | 1 |
+| Main vs. stocking gift type, with a stocking count per person | Airtable template, Christmas Gift List Tracker | 1 |
+| Person profiles with sizes, likes, and dislikes | Gifted | 1 |
+| Surprise rule: gifts for one of us are hidden from that person | Christmas Gift List Tracker, Giftster | 1 |
+| Anyone can add ideas for anyone | GiftFlow | 1 |
+| Fairness strip: the kids side by side by $ and number of gifts | (ours) | 1 |
+| "Committed" money shown separately from "spent" | (ours) | 1 |
+| Wishlist flag: the kid asked for it | Giftster, Wishlist | 1 |
+| Separate stocking budget | Gifted | 2 |
+| Shopping list grouped by store | The Christmas List | 2 |
+| Givers checklist (does every kid have a gift for everyone?) | (ours) | 2 |
+| Wrapping and Christmas Eve checklist | (ours) | 2 |
+| Year-round ideas inbox | (ours) | 2 |
+| Recent-activity feed | (ours) | 2 |
+| Paste a link to auto-fill the title, image, and price | Christmas Community | 2 |
+| CSV import and export | (ours) | 2 |
+| Table view and card view | Christmas Community | 2 |
+| Dark mode and a holiday theme | (ours) | 2 |
+| Gift history by year and by person, plus a "given before" warning | Gifted, GiftFlow | 3 |
+| Kids' name draw (Secret Santa style) | Elfster, Giftster | 3 |
+| Receipt photo upload | (ours) | 3 |
+| Profile pictures / avatars | Christmas Community | 3 |
+| Markdown notes | Christmas Community | 3 |
+| Price-drop watch on saved links | (ours) | 3 |
+| Weekly email digest | (ours) | 3 |
+| Passkeys / Face ID sign-in | Christmas Gift List Tracker (app lock) | 3 |
+| Birthday and anniversary seasons | (ours) | 3 |
 
-## From gift-tracking apps
-| Idea | Seen in | Phase |
-|---|---|---|
-| ✅ **Hiding-spot field**, so you know where each gift is hidden | Santa's Bag | P1 |
-| ✅ Detailed statuses: ordered, received, needs to be sent, wrapped | Santa's Bag | P1 |
-| ✅ Budget per contact *and* for the whole list | Santa's Bag | P1 |
-| **Person profiles with clothing sizes**, likes, and dislikes | Gifted | P1 (sizes), P2 (likes) |
-| Separate stocking-stuffer budget | Gifted | P2 |
-| **Private / hidden gifts** (our "surprise rule") | Christmas Gift List Tracker, Giftster | P1 |
-| **Face ID / app lock** (for us: Cloudflare Access, already in the plan) | Christmas Gift List Tracker | P1 |
-| Order number and tracking link per gift | GiftList | P1 |
-| Shop-by-store organization | The Christmas List | P2 |
-| Gift history by year, so we don't repeat a gift or can see "what did we get her last year?" | Gifted, GiftFlow | P2 |
-| Wishlist reservation, so two givers don't buy the same thing | Giftster, Wishlist, Pønskelisten | P3 (kids' wishlists) |
-| Secret Santa draw | Elfster, Giftster | P3 |
-
-## From open-source projects
-| Idea | Project | Phase |
-|---|---|---|
-| **Paste a link and the title, image, and price fill in automatically** | Christmas Community (`get-product-data`) | P2 |
-| Anyone can add ideas for anyone (we'll keep that, minus the surprise rule) | GiftFlow | P1 |
-| **Purchased-by / payer / reimbursement tracking** (who fronted the money) | GiftFlow | P1 (payer), P3 (reimbursement) |
-| Year archive browsable by year and by person | GiftFlow | P2 |
-| Table view *and* card view | Christmas Community | P2 |
-| Markdown notes | Christmas Community | P3 |
-| Profile pictures / avatars | Christmas Community | P3 (emoji + color in P1) |
-| Read-only guest link (e.g. grandparents see the kids' wishlists) | Christmas Community, Wishlist | P3 |
-| Google sign-in (OIDC) | Christmas Community | P3 (Cloudflare Access covers this) |
-
-## Our own ideas (not seen elsewhere)
-| Idea | Phase |
+## Left out (by decision)
+| Feature | Why |
 |---|---|
-| **Fairness strip**: the kids side by side by $ and number of gifts | P1 |
-| **Givers view**: "Does every kid have a gift for each sibling and each parent?", shown as a checklist matrix | P2 |
-| **Christmas Eve mode**: a checklist of what goes under the tree, from whom, and where it's hidden | P2 |
-| Year-round **ideas inbox** (jot down an idea in July) | P2 |
-| "Committed" money (planned + ordered) shown separately from "spent" | P1 |
-| Recent-activity feed: what your spouse added or bought | P2 |
-| Text or email digest: "3 returns close this week" | P3 |
-| Receipt photo upload | P3 |
-| Price-drop watch on saved links | P3 |
-| Extra seasons: birthdays, anniversaries, teacher gifts | P3 (the data model already supports it) |
-| Dark mode and a holiday theme | P2 |
+| Read-only guest link for grandparents | Not wanted |
+| Hiding-spot field | Not wanted |
+| Purchased-by / payer / reimbursement tracking (GiftFlow) | One shared pot |
+| Google / OIDC sign-in (Christmas Community) | We're using the app's own email and password login |
 
 ## Sources
 - Open source: [GiftFlow](https://github.com/garnajee/giftflow), [Christmas Community](https://github.com/Wingysam/Christmas-Community), [Wishlist (ElfHosted docs)](https://docs.elfhosted.com/app/wishlist/), [Pønskelisten](https://selfhostyourself.com/services/poenskelisten), [Geeftlist](https://selfhostyourself.com/services/geeftlist), [selfhostyourself: Giftster alternatives](https://selfhostyourself.com/alternative-to/giftster)
