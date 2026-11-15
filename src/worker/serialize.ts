@@ -21,6 +21,7 @@ export function toPerson(p: PersonRow): ApiPerson {
     notes: p.notes,
     sortOrder: p.sortOrder,
     archived: p.archived,
+    giverOnly: p.giverOnly,
   };
 }
 

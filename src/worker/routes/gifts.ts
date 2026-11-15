@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
-import { activityLog, giftGivers, gifts, people, seasons, type GiftRow } from "../../db/schema";
+import { giftGivers, gifts, people, seasons } from "../../db/schema";
+import { createdSummary, deletedSummary, logGiftActivity, updatedSummary } from "../activity";
 import { getVisibleGift, loadGiverIds, loadVisibleGifts } from "../gift-access";
 import { fail, idParam, parseJson, parseQuery } from "../http";
 import { toGift } from "../serialize";
@@ -50,8 +51,8 @@ giftRoutes.get("/", async (c) => {
   return c.json(rows.map((r) => toGift(r.gift, givers.get(r.gift.id) ?? [])));
 });
 
-/** 400s if any referenced season or person doesn't exist. */
-async function checkRefs(
+/** 400s if any referenced season or person doesn't exist, or the recipient is giver-only. */
+export async function checkRefs(
   db: Db,
   refs: { seasonId?: number | null; recipientId?: number; giverIds?: number[] },
 ): Promise<void> {
@@ -60,8 +61,13 @@ async function checkRefs(
     if (!s) fail(400, "seasonId: season not found");
   }
   if (refs.recipientId !== undefined) {
-    const p = await db.select({ id: people.id }).from(people).where(eq(people.id, refs.recipientId)).get();
+    const p = await db
+      .select({ id: people.id, giverOnly: people.giverOnly })
+      .from(people)
+      .where(eq(people.id, refs.recipientId))
+      .get();
     if (!p) fail(400, "recipientId: person not found");
+    if (p.giverOnly) fail(400, "recipientId: this person only gives gifts");
   }
   if (refs.giverIds && refs.giverIds.length > 0) {
     const found = await db.select({ id: people.id }).from(people).where(inArray(people.id, refs.giverIds)).all();
@@ -72,18 +78,6 @@ async function checkRefs(
 async function personName(db: Db, id: number): Promise<string> {
   const p = await db.select({ name: people.name }).from(people).where(eq(people.id, id)).get();
   return p?.name ?? "someone";
-}
-
-function logActivity(db: Db, userId: number, action: "create" | "update" | "delete", gift: GiftRow, summary: string) {
-  return db.insert(activityLog).values({
-    userId,
-    giftId: gift.id,
-    recipientId: gift.recipientId,
-    seasonId: gift.seasonId,
-    action,
-    summary,
-    at: new Date().toISOString(),
-  });
 }
 
 giftRoutes.post("/", async (c) => {
@@ -99,7 +93,7 @@ giftRoutes.post("/", async (c) => {
     .get();
   const name = await personName(db, gift.recipientId);
   await db.batch([
-    logActivity(db, user.id, "create", gift, `${user.displayName} added “${gift.title}” for ${name}`),
+    logGiftActivity(db, user.id, "create", gift, createdSummary(gift.title, name)),
     ...(giverIds.length ? [db.insert(giftGivers).values(giverIds.map((personId) => ({ giftId: gift.id, personId })))] : []),
   ]);
   // Note: a gift created for yourself is returned this once (you just typed it) but is
@@ -131,19 +125,19 @@ giftRoutes.patch("/:id", async (c) => {
   if (!gift) fail(404, "Gift not found");
 
   const name = await personName(db, gift.recipientId);
-  const summary =
-    body.status && body.status !== before.status
-      ? `${user.displayName} marked “${gift.title}” for ${name} as ${body.status}`
-      : `${user.displayName} updated “${gift.title}” for ${name}`;
-  await db.batch([
-    logActivity(db, user.id, "update", gift, summary),
+  const giversBefore = giverIds ? ((await loadGiverIds(db, [id])).get(id) ?? []) : [];
+  const summary = updatedSummary(before, gift, { recipient: name }, giverIds ? { before: giversBefore, after: giverIds } : undefined);
+  const stmts = [
+    ...(summary ? [logGiftActivity(db, user.id, "update", gift, summary)] : []),
     ...(giverIds
       ? [
           db.delete(giftGivers).where(eq(giftGivers.giftId, id)),
           ...(giverIds.length ? [db.insert(giftGivers).values(giverIds.map((personId) => ({ giftId: id, personId })))] : []),
         ]
       : []),
-  ]);
+  ];
+  // Nothing changed -> no activity row and nothing to write.
+  if (stmts.length) await db.batch(stmts as [(typeof stmts)[number], ...(typeof stmts)[number][]]);
   const givers = giverIds ?? (await loadGiverIds(db, [id])).get(id) ?? [];
   return c.json(toGift(gift, givers));
 });
@@ -156,7 +150,7 @@ giftRoutes.delete("/:id", async (c) => {
   const name = await personName(db, gift.recipientId);
   await db.batch([
     db.delete(gifts).where(eq(gifts.id, id)),
-    logActivity(db, user.id, "delete", gift, `${user.displayName} deleted “${gift.title}” for ${name}`),
+    logGiftActivity(db, user.id, "delete", gift, deletedSummary(gift.title, name)),
   ]);
   return c.json({ ok: true });
 });

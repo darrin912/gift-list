@@ -29,6 +29,8 @@ export const people = sqliteTable("people", {
   notes: text("notes").notNull().default(""),
   sortOrder: integer("sort_order").notNull().default(0),
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  /** A gift tag like Santa: can be a giver, never a recipient. */
+  giverOnly: integer("giver_only", { mode: "boolean" }).notNull().default(false),
 });
 
 export const users = sqliteTable("users", {

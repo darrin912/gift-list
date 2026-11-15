@@ -24,6 +24,8 @@ export interface DashboardPerson {
   stockingBudgetCents: number;
   spentCents: number;
   committedCents: number;
+  stockingSpentCents: number;
+  stockingCommittedCents: number;
   giftCount: number;
   stockingCount: number;
   countsByStatus: Record<GiftStatus, number>;
@@ -31,7 +33,17 @@ export interface DashboardPerson {
 
 export interface Dashboard {
   season: ApiSeason | null;
-  totals: { budgetCents: number; spentCents: number; committedCents: number; remainingCents: number; giftCount: number };
+  totals: {
+    budgetCents: number;
+    spentCents: number;
+    committedCents: number;
+    remainingCents: number;
+    giftCount: number;
+    /** Sum of person budgets (non-archived, non-giver-only people, viewer included). */
+    allocatedCents: number;
+    /** overallBudgetCents − allocatedCents; negative = over-allocated. */
+    unallocatedCents: number;
+  };
   people: DashboardPerson[];
   fairness: { personId: number; spentCents: number; committedCents: number; giftCount: number }[];
   attention: {
@@ -50,6 +62,8 @@ function emptyDashboard(season: ApiSeason | null): Dashboard {
       committedCents: 0,
       remainingCents: season?.overallBudgetCents ?? 0,
       giftCount: 0,
+      allocatedCents: 0,
+      unallocatedCents: season?.overallBudgetCents ?? 0,
     },
     people: [],
     fairness: [],
@@ -79,13 +93,19 @@ export async function buildDashboard(
   const secret = isSeasonSecret(season, today);
 
   // Show non-archived parents and kids, plus anyone with a budget or (visible) gifts this season.
+  // Giver-only people (gift tags like Santa) never get a card.
   const shown = allPeople.filter(
     (p) =>
-      (!p.archived && p.kind !== "other") ||
-      budgetBy.has(p.id) ||
-      giftsBy.has(p.id) ||
-      (secret && p.id === viewer.personId && !p.archived),
+      !p.giverOnly &&
+      ((!p.archived && p.kind !== "other") ||
+        budgetBy.has(p.id) ||
+        giftsBy.has(p.id) ||
+        (secret && p.id === viewer.personId && !p.archived)),
   );
+
+  // Allocation counts every budget, the viewer's own included (a budget isn't a surprise).
+  const allocatable = new Set(allPeople.filter((p) => !p.archived && !p.giverOnly).map((p) => p.id));
+  const allocatedCents = budgets.reduce((sum, b) => (allocatable.has(b.personId) ? sum + b.budgetCents : sum), 0);
 
   const dashPeople: DashboardPerson[] = shown.map((p) => {
     if (secret && p.id === viewer.personId) {
@@ -96,6 +116,8 @@ export async function buildDashboard(
         stockingBudgetCents: 0,
         spentCents: 0,
         committedCents: 0,
+        stockingSpentCents: 0,
+        stockingCommittedCents: 0,
         giftCount: 0,
         stockingCount: 0,
         countsByStatus: emptyStatusCounts(),
@@ -103,6 +125,7 @@ export async function buildDashboard(
     }
     const list = giftsBy.get(p.id) ?? [];
     const money = sumMoney(list);
+    const stockingMoney = sumMoney(list.filter((g) => g.category === "stocking"));
     const countsByStatus = emptyStatusCounts();
     for (const g of list) countsByStatus[g.status]++;
     const b = budgetBy.get(p.id);
@@ -113,6 +136,8 @@ export async function buildDashboard(
       stockingBudgetCents: b?.stockingBudgetCents ?? 0,
       spentCents: money.spentCents,
       committedCents: money.committedCents,
+      stockingSpentCents: stockingMoney.spentCents,
+      stockingCommittedCents: stockingMoney.committedCents,
       giftCount: money.giftCount,
       stockingCount: list.filter((g) => g.category === "stocking" && isCounted(g.status)).length,
       countsByStatus,
@@ -140,6 +165,8 @@ export async function buildDashboard(
       committedCents: totalsMoney.committedCents,
       remainingCents: remainingCents(season.overallBudgetCents, totalsMoney),
       giftCount: totalsMoney.giftCount,
+      allocatedCents,
+      unallocatedCents: season.overallBudgetCents - allocatedCents,
     },
     people: dashPeople,
     fairness,

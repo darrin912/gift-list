@@ -1,57 +1,12 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { createApp } from "../src/worker/app";
 import { hashPassword } from "../src/worker/crypto";
 import { addDays, todayUtc } from "../src/worker/rules";
-
-const app = createApp();
-let counter = 0;
-
-async function call(
-  path: string,
-  init: { method?: string; body?: unknown; cookie?: string; ip?: string } = {},
-): Promise<{ status: number; body: any; headers: Headers }> {
-  const headers = new Headers({ "Content-Type": "application/json" });
-  if (init.cookie) headers.set("Cookie", init.cookie);
-  headers.set("CF-Connecting-IP", init.ip ?? "203.0.113.1");
-  const res = await app.fetch(
-    new Request(`https://gifts.example/api${path}`, {
-      method: init.method ?? "GET",
-      headers,
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    }),
-    env,
-  );
-  const text = await res.text();
-  return { status: res.status, body: text ? JSON.parse(text) : null, headers: res.headers };
-}
-
-/** Creates a parent person + linked user directly in D1 (like scripts/create-user.mjs) and logs in. */
-async function makeUser(name: string): Promise<{ cookie: string; personId: number; userId: number; email: string }> {
-  const n = ++counter;
-  const email = `${name.toLowerCase()}${n}@example.test`;
-  const h = await hashPassword("password1234", 1000); // low iterations keep tests fast
-  const person = await env.DB.prepare("INSERT INTO people (name, kind) VALUES (?, 'parent') RETURNING id")
-    .bind(`${name}${n}`)
-    .first<{ id: number }>();
-  const user = await env.DB.prepare(
-    "INSERT INTO users (email, display_name, password_hash, password_salt, password_iterations, person_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
-  )
-    .bind(email, name, h.hash, h.salt, h.iterations, person!.id)
-    .first<{ id: number }>();
-  const res = await call("/auth/login", {
-    method: "POST",
-    body: { email: email.toUpperCase(), password: "password1234" },
-    ip: `198.51.100.${n}`,
-  });
-  expect(res.status).toBe(200);
-  const setCookie = res.headers.get("Set-Cookie")!;
-  return { cookie: setCookie.split(";")[0]!, personId: person!.id, userId: user!.id, email };
-}
+import { call, makeUser, nextN } from "./helpers";
 
 describe("auth", () => {
   it("requires a session everywhere except login", async () => {
-    for (const p of ["/auth/me", "/people", "/seasons", "/gifts", "/stores", "/dashboard", "/nope"]) {
+    for (const p of ["/auth/me", "/people", "/seasons", "/gifts", "/stores", "/dashboard", "/activity", "/export.csv", "/nope"]) {
       const res = await call(p);
       expect(res.status, p).toBe(401);
       expect(res.body).toEqual({ error: expect.any(String) });
@@ -59,8 +14,8 @@ describe("auth", () => {
   });
 
   it("logs in with a secure session cookie and logs out", async () => {
-    const n = ++counter;
-    const email = `cookie${n}@example.test`;
+    const n = nextN();
+    const email = `cookie${n}@example.com`;
     const h = await hashPassword("password1234", 1000);
     await env.DB.prepare(
       "INSERT INTO users (email, display_name, password_hash, password_salt, password_iterations) VALUES (?, 'C', ?, ?, ?)",
@@ -99,7 +54,7 @@ describe("auth", () => {
 
   it("rate-limits after 5 failures per IP", async () => {
     for (let i = 0; i < 5; i++) {
-      await call("/auth/login", { method: "POST", body: { email: `nobody${i}@example.test`, password: "x" }, ip: "10.9.9.9" });
+      await call("/auth/login", { method: "POST", body: { email: `nobody${i}@example.com`, password: "x" }, ip: "10.9.9.9" });
     }
     const u = await makeUser("Ip");
     const blocked = await call("/auth/login", { method: "POST", body: { email: u.email, password: "password1234" }, ip: "10.9.9.9" });
@@ -194,7 +149,7 @@ describe("gifts, dashboard and the surprise rule", () => {
     expect(dm.season.id).toBe(season.id);
     const spent = 8500 + 500; // Bike (actual) + Socks (est)
     const committed = 4000;
-    expect(dm.totals).toEqual({ budgetCents: 100000, spentCents: spent, committedCents: committed, remainingCents: 100000 - spent - committed, giftCount: 3 });
+    expect(dm.totals).toEqual({ budgetCents: 100000, spentCents: spent, committedCents: committed, remainingCents: 100000 - spent - committed, giftCount: 3, allocatedCents: 50000, unallocatedCents: 50000 });
     const momCard = dm.people.find((p: any) => p.personId === mom.personId);
     expect(momCard).toMatchObject({ hidden: true, budgetCents: 0, stockingBudgetCents: 0, spentCents: 0, committedCents: 0, giftCount: 0, stockingCount: 0 });
     expect(Object.values(momCard.countsByStatus).every((n) => n === 0)).toBe(true);

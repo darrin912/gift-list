@@ -3,8 +3,11 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import * as schema from "../db/schema";
 import { authRoutes, authSessionRoutes, requireSession } from "./auth";
+import { activityRoutes } from "./routes/activity";
+import { csvRoutes } from "./routes/csv";
 import { dashboardRoutes } from "./routes/dashboard";
 import { giftRoutes, listStores } from "./routes/gifts";
+import { linkPreviewRoutes } from "./routes/link-preview";
 import { peopleRoutes } from "./routes/people";
 import { seasonRoutes } from "./routes/seasons";
 import { todayUtc } from "./rules";
@@ -31,6 +34,9 @@ export function createApi() {
   api.route("/gifts", giftRoutes);
   api.get("/stores", async (c) => c.json(await listStores(c.var.db)));
   api.route("/dashboard", dashboardRoutes);
+  api.route("/activity", activityRoutes);
+  api.route("/link-preview", linkPreviewRoutes);
+  api.route("/", csvRoutes); // /export.csv, /import
 
   api.notFound((c) => c.json({ error: "Not found" }, 404));
   return api;

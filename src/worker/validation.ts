@@ -42,6 +42,7 @@ const personFields = {
   notes: text(20000),
   sortOrder: z.number().int().min(-1_000_000).max(1_000_000),
   archived: z.boolean(),
+  giverOnly: z.boolean(),
 };
 
 export const personCreate = z.object({
@@ -55,6 +56,7 @@ export const personCreate = z.object({
   notes: personFields.notes.default(""),
   sortOrder: personFields.sortOrder.default(0),
   archived: personFields.archived.default(false),
+  giverOnly: personFields.giverOnly.default(false),
 });
 
 export const personPatch = z.object(personFields).partial();
@@ -150,4 +152,23 @@ export const giftQuery = z.object({
 
 export const dashboardQuery = z.object({
   seasonId: intString.optional(),
+});
+
+export const activityQuery = z.object({
+  limit: intString.pipe(z.number().int().min(1).max(100)).optional(),
+  seasonId: intString.optional(),
+});
+
+export const linkPreviewBody = z.object({
+  url: z.string().trim().min(1).max(2000),
+});
+
+export const exportQuery = z.object({
+  seasonId: intString.optional(),
+});
+
+export const importBody = z.object({
+  csv: z.string().max(5_000_000, "CSV is too large"),
+  seasonId: id.nullable().default(null),
+  dryRun: z.boolean().default(false),
 });

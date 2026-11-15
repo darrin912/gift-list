@@ -14,7 +14,7 @@ export function parsePriceToCents(input: string | number | null | undefined): nu
   }
   // Keep digits and separators only; anything else (currency symbols, codes, spaces) is noise.
   const s = input.trim();
-  if (!s || s.startsWith("-") || /\d\s*-/.test(s)) return null; // negatives and ranges ("10-20")
+  if (!s || /-\s*\d|\d\s*-/.test(s)) return null; // negatives ("-5", "$-5") and ranges ("10-20")
   let num = s.replace(/[^\d.,]/g, "");
   if (!/\d/.test(num)) return null;
   const lastDot = num.lastIndexOf(".");

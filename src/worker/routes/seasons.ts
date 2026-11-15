@@ -1,7 +1,7 @@
 import { and, desc, eq, ne } from "drizzle-orm";
 import { Hono } from "hono";
 import { people, personBudgets, seasons } from "../../db/schema";
-import { idParam, notFound, parseJson } from "../http";
+import { fail, idParam, notFound, parseJson } from "../http";
 import { toSeason } from "../serialize";
 import type { AppEnv } from "../types";
 import { budgetPut, seasonCreate, seasonPatch } from "../validation";
@@ -70,10 +70,11 @@ seasonRoutes.put("/:id/budgets/:personId", async (c) => {
   const db = c.var.db;
   const [season, person] = await Promise.all([
     db.select({ id: seasons.id }).from(seasons).where(eq(seasons.id, seasonId)).get(),
-    db.select({ id: people.id }).from(people).where(eq(people.id, personId)).get(),
+    db.select({ id: people.id, giverOnly: people.giverOnly }).from(people).where(eq(people.id, personId)).get(),
   ]);
   if (!season) notFound("Season not found");
   if (!person) notFound("Person not found");
+  if (person.giverOnly) fail(400, "This person only gives gifts and can't have a budget");
 
   const set: { budgetCents: number; stockingBudgetCents?: number } = { budgetCents: body.budgetCents };
   if (body.stockingBudgetCents !== undefined) set.stockingBudgetCents = body.stockingBudgetCents;

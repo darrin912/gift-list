@@ -29,6 +29,10 @@ peopleRoutes.patch("/:id", async (c) => {
   const id = idParam(c);
   const body = await parseJson(c, personPatch);
   const db = c.var.db;
+  if (body.giverOnly) {
+    const received = await db.select({ id: gifts.id }).from(gifts).where(eq(gifts.recipientId, id)).limit(1).get();
+    if (received) fail(409, "This person already receives gifts, so they can't be giver-only");
+  }
   const row =
     Object.keys(body).length > 0
       ? await db.update(people).set(body).where(eq(people.id, id)).returning().get()
