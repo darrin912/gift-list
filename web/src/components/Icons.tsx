@@ -185,3 +185,8 @@ export const IconArrowRight = (p: P) => (
     <path d="M4.5 12h15M14 6.5l5.5 5.5-5.5 5.5" />
   </Base>
 );
+export const IconShuffle = (p: P) => (
+  <Base {...p}>
+    <path d="M3 7h3.5c2 0 3.2 1 4.3 2.6l2.4 4.8C14.3 16 15.5 17 17.5 17H21M18 14l3 3-3 3M3 17h3.5c1.4 0 2.4-.5 3.2-1.4M14.3 8.4c.8-.9 1.8-1.4 3.2-1.4H21M18 4l3 3-3 3" />
+  </Base>
+);

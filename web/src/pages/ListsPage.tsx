@@ -1,12 +1,13 @@
 import type { ComponentType, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { SVGProps } from "react";
-import { useGifts, usePeople } from "../lib/queries";
+import { useDraw, useGifts, usePeople } from "../lib/queries";
+import { pairHasGift } from "../lib/phase3";
 import { useSeason } from "../lib/season";
 import { buildGiversMatrix, emptyCellCount, wrapProgress } from "../lib/lists";
 import { useMe } from "../lib/queries";
 import { PageHeader } from "../components/ui";
-import { IconBulb, IconCart, IconChevronLeft, IconChevronRight, IconClock, IconGrid, IconRibbon } from "../components/Icons";
+import { IconBulb, IconCart, IconChevronLeft, IconChevronRight, IconClock, IconGrid, IconRibbon, IconShuffle } from "../components/Icons";
 
 type IconT = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
 
@@ -16,6 +17,9 @@ export default function ListsPage() {
   const inbox = useGifts({ seasonId: "none" });
   const people = usePeople();
   const me = useMe();
+  const draw = useDraw(seasonId);
+  const pairs = draw.data?.pairs ?? [];
+  const drawDone = pairs.filter((p) => pairHasGift(p, gifts.data ?? [], seasonId)).length;
 
   const list = gifts.data ?? [];
   const toBuy = list.filter((g) => g.status === "planned").length;
@@ -26,7 +30,7 @@ export default function ListsPage() {
 
   return (
     <>
-      <PageHeader title="Lists" sub={season ? `Christmas helpers for ${season.name}` : "Christmas helpers"} />
+      <PageHeader title="Lists" sub={season ? `Helpers for ${season.name}` : "Helpers for the season"} />
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Tile to="/lists/shopping" icon={IconCart} tone="var(--st-planned)" title="Shopping list" body="Planned gifts, grouped by store." stat={ready ? (toBuy ? `${toBuy} to buy` : "All bought") : null} />
         <Tile
@@ -52,6 +56,14 @@ export default function ListsPage() {
           title="Ideas inbox"
           body="Year-round ideas with no season yet."
           stat={inbox.data ? `${inbox.data.length} ${inbox.data.length === 1 ? "idea" : "ideas"}` : null}
+        />
+        <Tile
+          to="/lists/draw"
+          icon={IconShuffle}
+          tone="var(--st-received)"
+          title="Name draw"
+          body="Each kid draws a name to give to."
+          stat={draw.data ? (pairs.length ? `${drawDone} of ${pairs.length} have a gift` : "Not drawn yet") : null}
         />
         <Tile to="/activity" icon={IconClock} tone="var(--muted)" title="Activity" body="Who added or changed what." />
       </ul>

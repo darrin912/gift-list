@@ -507,7 +507,7 @@ function PriceCheck({ gift, linkChanged }: { gift: Gift; linkChanged: boolean })
     <div className="border-t border-line py-3">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1 text-[14px] text-muted">
-          {info.dropped && <span className="mb-1 mr-2 inline-flex rounded-full bg-pine-soft px-2 py-0.5 text-[13px] font-semibold text-pine">⬇ Price drop</span>}
+          {info.dropped && <div className="mb-1"><span className="inline-flex rounded-full bg-pine-soft px-2 py-0.5 text-[13px] font-semibold text-pine">⬇ Price drop</span></div>}
           <span className="tnum">{meta.join(" · ")}</span>
         </div>
         <button type="button" className="btn-quiet min-h-[40px] shrink-0 !px-3.5 text-[15px]" onClick={() => check.mutate()} disabled={check.isPending}>

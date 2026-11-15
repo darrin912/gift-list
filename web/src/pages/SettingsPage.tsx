@@ -237,7 +237,7 @@ function SeasonForm({ season, onDone }: { season?: Season; onDone: () => void })
       <ErrorNote error={save.error} />
       <div className="flex gap-2">
         <button type="button" className="btn-quiet flex-1" onClick={onDone}>Cancel</button>
-        <button type="submit" className="btn-primary flex-1" disabled={save.isPending}>{season ? "Save season" : "Create season"}</button>
+        <button type="submit" className="btn-primary flex-[1.6] whitespace-nowrap" disabled={save.isPending}>{season ? "Save season" : "Create season"}</button>
       </div>
     </form>
   );

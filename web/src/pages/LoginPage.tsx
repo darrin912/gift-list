@@ -2,7 +2,9 @@ import { useState, type FormEvent } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
+import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import { qk, useMe } from "../lib/queries";
+import { passkeyError, supportsPasskeys } from "../lib/phase3";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -25,7 +27,22 @@ export default function LoginPage() {
     },
   });
 
+  const passkey = useMutation({
+    mutationFn: async () => {
+      const optionsJSON = (await api.auth.passkeyLoginOptions()) as PublicKeyCredentialRequestOptionsJSON;
+      const response = await startAuthentication({ optionsJSON });
+      return api.auth.passkeyLoginVerify(response);
+    },
+    onMutate: () => login.reset(),
+    onSuccess: (user) => {
+      qc.clear();
+      qc.setQueryData(qk.me, user);
+    },
+  });
+  const canPasskey = supportsPasskeys();
+
   if (me.data) return <Navigate to={from} replace />;
+  const pkErr = passkey.error ? passkeyError(passkey.error, "login") : null;
 
   const err = login.error;
   const message =
@@ -41,6 +58,7 @@ export default function LoginPage() {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    passkey.reset();
     if (!email || !password) return;
     login.mutate();
   };
@@ -96,6 +114,25 @@ export default function LoginPage() {
           <button type="submit" className="btn-primary w-full" disabled={login.isPending || !email || !password}>
             {login.isPending ? "Signing in…" : "Sign in"}
           </button>
+          {canPasskey && (
+            <>
+              <div className="flex items-center gap-3 text-[13px] font-semibold text-muted" aria-hidden="true">
+                <span className="h-px flex-1 bg-line" /> or <span className="h-px flex-1 bg-line" />
+              </div>
+              <button type="button" className="btn-quiet w-full" onClick={() => passkey.mutate()} disabled={passkey.isPending || login.isPending}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" />
+                  <path d="M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.5 15.5c1.5 1.2 3.5 1.2 5 0" />
+                </svg>
+                {passkey.isPending ? "Waiting for your device…" : "Sign in with Face ID / passkey"}
+              </button>
+              {pkErr && (
+                <p role={pkErr.quiet ? "status" : "alert"} className={`rounded-xl px-4 py-3 text-[15px] font-medium ${pkErr.quiet ? "bg-surface-2 text-muted" : "bg-berry-soft text-berry"}`}>
+                  {pkErr.message}
+                </p>
+              )}
+            </>
+          )}
         </div>
       </form>
     </div>

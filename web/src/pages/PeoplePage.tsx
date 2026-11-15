@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
-import type { Person, PersonKind } from "../api";
-import { isGiverOnly, KIND_LABEL } from "../lib/format";
-import { usePeople } from "../lib/queries";
+import { Link, useNavigate } from "react-router-dom";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, type Person, type PersonKind } from "../api";
+import { formatDate, isGiverOnly, KIND_LABEL } from "../lib/format";
+import { birthdaySeasonName, findBirthdaySeason, inDays, nextBirthday, type NextBirthday } from "../lib/phase3";
+import { qk, usePeople } from "../lib/queries";
+import { useSeason } from "../lib/season";
 import { EmptyState, ErrorNote, Loading, PageHeader, PersonBadge } from "../components/ui";
 import { IconChevronRight, IconPlus } from "../components/Icons";
 
@@ -79,6 +82,8 @@ export default function PeoplePage() {
 
 function PersonRow({ p }: { p: Person }) {
   const sizes = Object.entries(p.sizes ?? {}).filter(([, v]) => v);
+  const nb = p.archived ? null : nextBirthday(p.birthday);
+  const soon = nb && nb.days <= 60 ? nb : null;
   return (
     <li>
       <Link to={`/people/${p.id}`} className={`flex min-h-[64px] items-center gap-3 px-4 py-3 hover:bg-surface-2 ${p.archived ? "opacity-60" : ""}`}>
@@ -88,12 +93,58 @@ function PersonRow({ p }: { p: Person }) {
             {p.name}
             {p.archived && <span className="ml-2 text-[13px] font-medium text-muted">Archived</span>}
           </span>
-          <span className="block truncate text-[14px] text-muted">
-            {sizes.length ? sizes.map(([k, v]) => `${k} ${v}`).join(", ") : KIND_LABEL[p.kind]}
-          </span>
+          {soon ? (
+            <span className="block truncate text-[14px] font-semibold text-gold">
+              🎂 {inDays(soon.days)}
+              <span className="font-normal text-muted">
+                {" · "}
+                {formatDate(soon.date)}
+                {soon.turning ? ` · turns ${soon.turning}` : ""}
+              </span>
+            </span>
+          ) : (
+            <span className="block truncate text-[14px] text-muted">
+              {sizes.length ? sizes.map(([k, v]) => `${k} ${v}`).join(", ") : KIND_LABEL[p.kind]}
+            </span>
+          )}
         </span>
         <IconChevronRight size={20} className="text-muted" />
       </Link>
+      {soon && <PlanBirthday p={p} nb={soon} />}
     </li>
+  );
+}
+
+/** Creates (or opens) this person's birthday season, then shows it on the dashboard. */
+function PlanBirthday({ p, nb }: { p: Person; nb: NextBirthday }) {
+  const { seasons, setSeasonId } = useSeason();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const existing = findBirthdaySeason(seasons, p.id, nb.date);
+  const open = (id: number) => {
+    setSeasonId(id);
+    navigate("/");
+  };
+  const create = useMutation({
+    mutationFn: () =>
+      api.seasons.create({ kind: "birthday", honoreeId: p.id, name: birthdaySeasonName(p.name, nb.date), date: nb.date, overallBudgetCents: 0, isActive: false, archived: false }),
+    onSuccess: (s) => {
+      qc.invalidateQueries({ queryKey: qk.seasons });
+      if (s?.id) open(s.id);
+    },
+  });
+  return (
+    <div className="-mt-1 flex items-center gap-2 pb-3 pl-[68px] pr-4">
+      <button
+        type="button"
+        className="chip !min-h-[36px] border-gold text-[14px] font-semibold text-gold"
+        style={{ background: "var(--gold-soft)" }}
+        disabled={create.isPending}
+        onClick={() => (existing ? open(existing.id) : create.mutate())}
+      >
+        {existing ? "Open birthday" : create.isPending ? "Creating…" : "Plan birthday"}
+      </button>
+      {create.isError && <span className="text-[13px] font-semibold text-berry">Couldn't create it. Try again.</span>}
+    </div>
   );
 }

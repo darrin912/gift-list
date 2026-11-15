@@ -20,6 +20,7 @@ import WrappingPage from "./pages/WrappingPage";
 import GiversPage from "./pages/GiversPage";
 import IdeasPage from "./pages/IdeasPage";
 import ActivityPage from "./pages/ActivityPage";
+import DrawPage from "./pages/DrawPage";
 
 /** Sends the user to /login on any 401 and drops cached data. */
 function UnauthorizedRedirect() {
@@ -70,6 +71,7 @@ export default function App() {
             <Route path="lists/wrapping" element={<WrappingPage />} />
             <Route path="lists/givers" element={<GiversPage />} />
             <Route path="lists/ideas" element={<IdeasPage />} />
+            <Route path="lists/draw" element={<DrawPage />} />
             <Route path="activity" element={<ActivityPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
