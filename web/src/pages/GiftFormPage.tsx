@@ -1,12 +1,13 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Gift, type GiftCategory, type GiftInput, type GiftStatus } from "../api";
-import { ALL_STATUSES, CATEGORIES, CATEGORY_LABEL, centsToInput, isHttpUrl, parseDollars, STATUS_LABEL } from "../lib/format";
+import { ALL_STATUSES, CATEGORIES, CATEGORY_LABEL, centsToInput, isGiverOnly, isHttpUrl, parseDollars, STATUS_LABEL } from "../lib/format";
+import { looksLikeUrl, mergePreview } from "../lib/lists";
 import { qk, useInvalidateGifts, usePeople, useStores } from "../lib/queries";
 import { useSeason } from "../lib/season";
 import { ErrorNote, Loading, Sheet, Toggle } from "../components/ui";
-import { IconTrash } from "../components/Icons";
+import { IconSparkle, IconTrash } from "../components/Icons";
 
 export default function GiftFormPage() {
   const { id } = useParams();
@@ -86,11 +87,42 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
     orderNumber: gift?.orderNumber ?? "",
     trackingUrl: gift?.trackingUrl ?? "",
     returnBy: gift?.returnBy ?? "",
-    giverIds: gift?.giverIds ?? ([] as number[]),
+    giverIds:
+      gift?.giverIds ??
+      (sp.get("from")
+        ? sp
+            .get("from")!
+            .split(",")
+            .map(Number)
+            .filter((n) => Number.isInteger(n) && n > 0)
+        : ([] as number[])),
     description: gift?.description ?? "",
   }));
   const [formError, setFormError] = useState<string | null>(null);
   const [imgOk, setImgOk] = useState(true);
+  const [preview, setPreview] = useState<{ kind: "ok" | "blocked" | "empty" | "error"; text: string } | null>(null);
+  // Always merge into the latest form values (the request may finish after more typing).
+  const latest = useRef(f);
+  latest.current = f;
+  const autofill = useMutation({
+    mutationFn: (url: string) => api.linkPreview(url),
+    onMutate: () => setPreview(null),
+    onSuccess: (p) => {
+      const { next, filled } = mergePreview(latest.current, p, centsToInput);
+      setF(next);
+      if (filled.includes("imageUrl")) setImgOk(true);
+      const names: Record<string, string> = { title: "title", imageUrl: "image", est: "price", store: "store" };
+      if (filled.length) setPreview({ kind: "ok", text: `Filled in the ${filled.map((k) => names[k]).join(", ")}. Check it looks right.` });
+      else if (p.blocked) setPreview({ kind: "blocked", text: "This store didn't let us peek at the page. Fill in the details by hand." });
+      else setPreview({ kind: "empty", text: "Nothing new to fill in from that page." });
+    },
+    onError: (e) => setPreview({ kind: "error", text: e instanceof ApiError && e.status === 400 ? "That link can't be previewed." : e instanceof ApiError && e.status === 429 ? "Too many previews in a minute. Try again shortly." : "Couldn't reach that page right now." }),
+  });
+  const runAutofill = (url: string) => {
+    const u = url.trim();
+    if (!isHttpUrl(u)) return setPreview({ kind: "error", text: "Paste a link that starts with http:// or https://." });
+    autofill.mutate(u);
+  };
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
 
   const active = (people.data ?? []).filter((p) => !p.archived || p.id === f.recipientId || f.giverIds.includes(p.id));
@@ -181,11 +213,55 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
           <input id="title" className="field text-[18px] font-semibold" value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="LEGO tree house" autoFocus={isNew} />
         </Field>
 
+        <Field label="Link" htmlFor="url">
+          <div className="flex gap-2">
+            <input
+              id="url"
+              className="field min-w-0 flex-1"
+              type="url"
+              inputMode="url"
+              value={f.url}
+              onChange={(e) => set("url", e.target.value)}
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text");
+                if (looksLikeUrl(text) && !f.url.trim()) {
+                  // Let the paste land in the field, then fetch the preview.
+                  setTimeout(() => runAutofill(text), 0);
+                }
+              }}
+              placeholder="Paste a product link"
+            />
+            <button
+              type="button"
+              className="btn-quiet shrink-0 !px-3.5"
+              onClick={() => runAutofill(f.url)}
+              disabled={autofill.isPending || !f.url.trim()}
+              aria-describedby={preview ? "autofill-note" : undefined}
+            >
+              <IconSparkle size={18} className={autofill.isPending ? "animate-pulse" : ""} />
+              {autofill.isPending ? "Looking…" : "Auto-fill"}
+            </button>
+          </div>
+          {preview ? (
+            <p
+              id="autofill-note"
+              role="status"
+              className={`mt-2 rounded-xl px-3 py-2 text-[14px] ${
+                preview.kind === "ok" ? "bg-pine-soft text-pine" : preview.kind === "error" ? "bg-berry-soft text-berry" : "bg-gold-soft text-gold"
+              }`}
+            >
+              {preview.text}
+            </p>
+          ) : (
+            <p className="mt-1.5 text-[13px] text-muted">Paste a link and we'll try to fill in the title, picture, price, and store (only the empty ones).</p>
+          )}
+        </Field>
+
         <div className="grid grid-cols-2 gap-3">
           <Field label="For" htmlFor="recipient">
             <select id="recipient" className="field" value={f.recipientId || ""} onChange={(e) => set("recipientId", Number(e.target.value))}>
               <option value="">Choose…</option>
-              {active.filter((p) => p.name !== "Santa").map((p) => (
+              {active.filter((p) => !isGiverOnly(p) || p.id === f.recipientId).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.emoji ? `${p.emoji} ` : ""}
                   {p.name}
@@ -293,10 +369,6 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
               <option key={s} value={s} />
             ))}
           </datalist>
-        </Field>
-
-        <Field label="Link" htmlFor="url">
-          <input id="url" className="field" type="url" inputMode="url" value={f.url} onChange={(e) => set("url", e.target.value)} placeholder="https://" />
         </Field>
 
         <Field label="Image URL" htmlFor="img">

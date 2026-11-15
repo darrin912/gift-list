@@ -14,6 +14,12 @@ import PeoplePage from "./pages/PeoplePage";
 import PersonPage from "./pages/PersonPage";
 import PersonFormPage from "./pages/PersonFormPage";
 import SettingsPage from "./pages/SettingsPage";
+import ListsPage from "./pages/ListsPage";
+import ShoppingPage from "./pages/ShoppingPage";
+import WrappingPage from "./pages/WrappingPage";
+import GiversPage from "./pages/GiversPage";
+import IdeasPage from "./pages/IdeasPage";
+import ActivityPage from "./pages/ActivityPage";
 
 /** Sends the user to /login on any 401 and drops cached data. */
 function UnauthorizedRedirect() {
@@ -59,6 +65,12 @@ export default function App() {
             <Route path="people/new" element={<PersonFormPage />} />
             <Route path="people/:id" element={<PersonPage />} />
             <Route path="people/:id/edit" element={<PersonFormPage />} />
+            <Route path="lists" element={<ListsPage />} />
+            <Route path="lists/shopping" element={<ShoppingPage />} />
+            <Route path="lists/wrapping" element={<WrappingPage />} />
+            <Route path="lists/givers" element={<GiversPage />} />
+            <Route path="lists/ideas" element={<IdeasPage />} />
+            <Route path="activity" element={<ActivityPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

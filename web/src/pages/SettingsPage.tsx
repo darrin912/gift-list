@@ -1,12 +1,14 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Person, type Season, type SeasonInput, type SeasonKind } from "../api";
-import { centsToInput, formatCents, formatDate, parseDollars, SEASON_KIND_LABEL } from "../lib/format";
+import { api, exportCsvUrl, type ImportResult, type Person, type Season, type SeasonInput, type SeasonKind } from "../api";
+import { allocation, centsToInput, formatCents, formatDate, parseDollars, recipientsOf, SEASON_KIND_LABEL } from "../lib/format";
+import { csvDataRowCount, orderImportRows, parseImportTarget, plural, summarizeImport } from "../lib/csv";
+import { applyTheme, readThemePref, storeThemePref, type ThemePref } from "../lib/theme";
 import { qk, useBudgets, useMe, usePeople } from "../lib/queries";
 import { useSeason } from "../lib/season";
-import { ErrorNote, Loading, PageHeader, PersonBadge, Toggle } from "../components/ui";
-import { IconLogout, IconPlus } from "../components/Icons";
+import { AllocationLine, ErrorNote, Loading, PageHeader, PersonBadge, Toggle } from "../components/ui";
+import { IconCheck, IconDownload, IconLogout, IconPlus, IconUpload, IconX } from "../components/Icons";
 import { Money } from "./GiftFormPage";
 
 export default function SettingsPage() {
@@ -24,6 +26,9 @@ export default function SettingsPage() {
           <Budgets />
         </div>
         <div className="space-y-6">
+          <Theme />
+          <ExportCsv />
+          <ImportCsv />
           <Password />
           <Account />
         </div>
@@ -168,33 +173,62 @@ function Budgets() {
   const { season } = useSeason();
   const people = usePeople();
   const budgets = useBudgets(season?.id);
+  // Live drafts of the gift budget inputs, so the allocation summary updates while typing.
+  const [drafts, setDrafts] = useState<Record<string, number>>({});
+  const onDraft = useCallback((key: string, cents: number) => setDrafts((d) => (d[key] === cents ? d : { ...d, [key]: cents })), []);
   if (!season) return null;
-  const list = (people.data ?? []).filter((p) => !p.archived && p.name !== "Santa");
+  const list = recipientsOf(people.data ?? []);
+  const alloc = allocation(
+    season.overallBudgetCents,
+    list.map((p) => drafts[`${season.id}-${p.id}`] ?? budgets.data?.find((b) => b.personId === p.id)?.budgetCents ?? 0),
+  );
   return (
     <Section id="budgets" title="Budgets" sub={`Per person for ${season.name}. Saves when you leave a field.`}>
       <ErrorNote error={budgets.error} />
       {budgets.isLoading ? (
         <Loading />
       ) : (
-        <div className="grid grid-cols-[1fr_6.5rem_6.5rem] items-center gap-x-2 gap-y-2">
-          <span />
-          <span className="text-[13px] font-semibold text-muted">Gifts</span>
-          <span className="text-[13px] font-semibold text-muted">🧦 Stocking</span>
-          {list.map((p) => {
-            const row = budgets.data?.find((b) => b.personId === p.id);
-            // Keyed by season + person only: keying on the saved values remounted the row after
-            // every save, wiping whatever was being typed in the other field of that row.
-            return <BudgetRow key={`${season.id}-${p.id}`} seasonId={season.id} person={p} budget={row?.budgetCents ?? 0} stocking={row?.stockingBudgetCents ?? 0} />;
-          })}
-        </div>
+        <>
+          <AllocationLine allocated={alloc.allocatedCents} unallocated={alloc.unallocatedCents} overall={season.overallBudgetCents} className="mb-4" />
+          <div className="grid grid-cols-[1fr_6.5rem_6.5rem] items-center gap-x-2 gap-y-2">
+            <span />
+            <span className="text-[13px] font-semibold text-muted">Gifts</span>
+            <span className="text-[13px] font-semibold text-muted">🧦 Stocking</span>
+            {list.map((p) => {
+              const row = budgets.data?.find((b) => b.personId === p.id);
+              // Keyed by season + person only: keying on the saved values remounted the row after
+              // every save, wiping whatever was being typed in the other field of that row.
+              const key = `${season.id}-${p.id}`;
+              return <BudgetRow key={key} draftKey={key} onDraft={onDraft} seasonId={season.id} person={p} budget={row?.budgetCents ?? 0} stocking={row?.stockingBudgetCents ?? 0} />;
+            })}
+          </div>
+        </>
       )}
     </Section>
   );
 }
 
-function BudgetRow({ seasonId, person, budget, stocking }: { seasonId: number; person: Person; budget: number; stocking: number }) {
+function BudgetRow({
+  seasonId,
+  person,
+  budget,
+  stocking,
+  draftKey,
+  onDraft,
+}: {
+  seasonId: number;
+  person: Person;
+  budget: number;
+  stocking: number;
+  draftKey: string;
+  onDraft: (key: string, cents: number) => void;
+}) {
   const qc = useQueryClient();
   const [b, setB] = useState(centsToInput(budget || null));
+  useEffect(() => {
+    const c = parseDollars(b);
+    if (!Number.isNaN(c)) onDraft(draftKey, c ?? 0);
+  }, [b, draftKey, onDraft]);
   const [s, setS] = useState(centsToInput(stocking || null));
   const save = useMutation({
     mutationFn: (v: { budgetCents: number; stockingBudgetCents: number }) => api.seasons.setBudget(seasonId, person.id, v),
@@ -299,5 +333,262 @@ function Account() {
         <IconLogout size={20} /> Sign out
       </button>
     </Section>
+  );
+}
+
+const THEMES: { v: ThemePref; label: string; swatch: [string, string, string] }[] = [
+  { v: "system", label: "System", swatch: ["#f3f6f2", "#0d1613", "#1f5c45"] },
+  { v: "light", label: "Light", swatch: ["#f3f6f2", "#ffffff", "#1f5c45"] },
+  { v: "dark", label: "Dark", swatch: ["#0d1613", "#15211c", "#6cc79e"] },
+  { v: "holiday", label: "Holiday", swatch: ["#f8f1e6", "#8a1a2b", "#1b5a3c"] },
+];
+
+function Theme() {
+  const [pref, setPref] = useState<ThemePref>(readThemePref);
+  const choose = (v: ThemePref) => {
+    setPref(v);
+    storeThemePref(v);
+    applyTheme(v);
+  };
+  return (
+    <Section id="theme" title="Theme" sub="Saved on this device.">
+      <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Theme">
+        {THEMES.map((t) => {
+          const on = pref === t.v;
+          return (
+            <button
+              key={t.v}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => choose(t.v)}
+              className={`flex min-h-[84px] flex-col items-center justify-center gap-2 rounded-xl border-2 px-1 text-[14px] font-semibold transition-colors ${on ? "border-pine bg-pine-soft text-ink" : "border-line text-muted"}`}
+            >
+              <span className="relative flex h-9 w-9 overflow-hidden rounded-full ring-1 ring-line" aria-hidden="true">
+                {t.v === "system" ? (
+                  <>
+                    <span className="h-full w-1/2" style={{ background: t.swatch[0] }} />
+                    <span className="h-full w-1/2" style={{ background: t.swatch[1] }} />
+                  </>
+                ) : (
+                  <span className="h-full w-full" style={{ background: t.swatch[0] }} />
+                )}
+                <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full" style={{ background: t.swatch[2], boxShadow: `0 0 0 2px ${t.v === "holiday" ? t.swatch[1] : "transparent"}` }} />
+              </span>
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+function ExportCsv() {
+  const { season } = useSeason();
+  const [scope, setScope] = useState<"season" | "all">(season ? "season" : "all");
+  const href = exportCsvUrl(scope === "season" && season ? season.id : undefined);
+  return (
+    <Section id="export" title="Export to CSV" sub="A spreadsheet of your gifts. Surprises for you are left out.">
+      <div className="mb-3 flex gap-1 rounded-xl bg-surface-2 p-1" role="radiogroup" aria-label="What to export">
+        {(
+          [
+            ["season", season?.name ?? "This season"],
+            ["all", "Every gift"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={scope === v}
+            disabled={v === "season" && !season}
+            onClick={() => setScope(v)}
+            className={`min-h-[40px] min-w-0 flex-1 truncate rounded-lg px-2 text-[15px] font-semibold transition-colors ${scope === v ? "bg-surface text-ink shadow-sm" : "text-muted"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <a href={href} download className="btn-quiet w-full">
+        <IconDownload size={20} /> Download CSV
+      </a>
+    </Section>
+  );
+}
+
+function ImportCsv() {
+  const { seasons, season } = useSeason();
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [csv, setCsv] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [target, setTarget] = useState<string>(season ? String(season.id) : "inbox");
+  const [preview, setPreview] = useState<ImportResult | null>(null);
+  const [done, setDone] = useState<number | null>(null);
+  const [readErr, setReadErr] = useState<string | null>(null);
+
+  const reset = () => {
+    setPreview(null);
+    setDone(null);
+  };
+  const dry = useMutation({
+    mutationFn: () => api.importCsv({ csv, seasonId: parseImportTarget(target), dryRun: true }),
+    onSuccess: (r) => setPreview(r),
+  });
+  const run = useMutation({
+    mutationFn: () => api.importCsv({ csv, seasonId: parseImportTarget(target), dryRun: false }),
+    onSuccess: (r) => {
+      setDone(r.created);
+      setPreview(null);
+      setCsv("");
+      setFileName(null);
+      ["gifts", "dashboard", "activity", "stores"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    },
+  });
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setReadErr(null);
+    reset();
+    try {
+      setCsv(await file.text());
+      setFileName(file.name);
+    } catch {
+      setReadErr("Couldn't read that file.");
+    }
+  };
+
+  const rowsGuess = csv.trim() ? csvDataRowCount(csv) : 0;
+  const sum = preview ? summarizeImport(preview.rows) : null;
+  const targetName = target === "inbox" ? "the ideas inbox" : (seasons.find((s) => String(s.id) === target)?.name ?? "the season");
+
+  return (
+    <Section id="import" title="Import from CSV" sub="Columns like the export. Only title and recipient are required; names must match people.">
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <button type="button" className="btn-quiet flex-1" onClick={() => fileRef.current?.click()}>
+            <IconUpload size={20} /> Choose file
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv,text/plain"
+            className="hidden"
+            onChange={(e) => {
+              void onFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+        </div>
+        <div>
+          <label htmlFor="csv-text" className="label">
+            {fileName ? `From ${fileName}` : "…or paste CSV"}
+          </label>
+          <textarea
+            id="csv-text"
+            className="field min-h-[110px] font-mono text-[13px] leading-snug"
+            value={csv}
+            onChange={(e) => {
+              setCsv(e.target.value);
+              setFileName(null);
+              reset();
+            }}
+            placeholder={"recipient,title,est_price,store\nEmma,Art easel,45,Target"}
+            spellCheck={false}
+          />
+          {rowsGuess > 0 && <p className="tnum mt-1 text-[13px] text-muted">About {plural(rowsGuess, "row")}.</p>}
+        </div>
+        <div>
+          <label htmlFor="csv-target" className="label">Import into</label>
+          <select
+            id="csv-target"
+            className="field"
+            value={target}
+            onChange={(e) => {
+              setTarget(e.target.value);
+              reset();
+            }}
+          >
+            {seasons
+              .filter((s) => !s.archived)
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            <option value="inbox">Ideas inbox (no season)</option>
+          </select>
+        </div>
+        {readErr && <p className="text-[14px] font-medium text-berry">{readErr}</p>}
+        <ErrorNote error={dry.error || run.error} />
+        {done !== null && (
+          <p role="status" className="rounded-xl bg-pine-soft px-4 py-3 text-[15px] font-medium text-pine">
+            Imported {plural(done, "gift")} into {targetName}.
+          </p>
+        )}
+        {!preview ? (
+          <button type="button" className="btn-primary w-full" disabled={!csv.trim() || dry.isPending} onClick={() => dry.mutate()}>
+            {dry.isPending ? "Checking…" : "Preview import"}
+          </button>
+        ) : (
+          <>
+            <p className="tnum text-[15px]">
+              <b>{plural(sum!.ok, "row")}</b> ready
+              {sum!.errors > 0 && (
+                <>
+                  {" · "}
+                  <b className="text-berry">{plural(sum!.errors, "row")} with problems</b>
+                  <span className="text-muted"> (won't be imported)</span>
+                </>
+              )}
+            </p>
+            <ImportPreviewTable result={preview} />
+            <div className="flex gap-2">
+              <button type="button" className="btn-quiet flex-1" onClick={reset}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary flex-[2]" disabled={sum!.ok === 0 || run.isPending} onClick={() => run.mutate()}>
+                {run.isPending ? "Importing…" : `Import ${plural(sum!.ok, "gift")}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function ImportPreviewTable({ result }: { result: ImportResult }) {
+  const rows = orderImportRows(result.rows);
+  return (
+    <div className="max-h-72 overflow-auto rounded-xl border border-line">
+      <table className="w-full border-collapse text-left text-[14px]">
+        <thead className="sticky top-0 bg-surface-2">
+          <tr>
+            <th scope="col" className="px-2.5 py-2 font-semibold text-muted">Line</th>
+            <th scope="col" className="px-2.5 py-2 font-semibold text-muted">Gift</th>
+            <th scope="col" className="px-2.5 py-2 font-semibold text-muted">For</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.line} className={`border-t border-line align-top ${r.ok ? "" : "bg-berry-soft"}`}>
+              <td className="tnum whitespace-nowrap px-2.5 py-2">
+                <span className="inline-flex items-center gap-1">
+                  {r.ok ? <IconCheck size={15} className="text-pine" strokeWidth={2.8} aria-label="OK" /> : <IconX size={15} className="text-berry" strokeWidth={2.8} aria-label="Error" />}
+                  {r.line}
+                </span>
+              </td>
+              <td className="px-2.5 py-2">
+                <span className="line-clamp-2 break-words">{r.title || <span className="text-muted">–</span>}</span>
+                {r.error && <span className="block text-[13px] font-semibold text-berry">{r.error}</span>}
+              </td>
+              <td className="break-words px-2.5 py-2">{r.recipient || <span className="text-muted">–</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

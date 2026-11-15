@@ -1,4 +1,4 @@
-import type { Gift, GiftCategory, GiftStatus, PersonKind, SeasonKind } from "../api";
+import type { Gift, GiftCategory, GiftStatus, Person, PersonKind, SeasonKind } from "../api";
 
 const usdWhole = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0, minimumFractionDigits: 0 });
 const usdCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -145,4 +145,25 @@ export function isHttpUrl(s: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Giver-only people (labels like Santa) can be a "From" but never a recipient. Missing = false. */
+export const isGiverOnly = (p: Pick<Person, "giverOnly">): boolean => p.giverOnly === true;
+
+/** People who can receive gifts: not archived and not giver-only. */
+export function recipientsOf(people: Person[]): Person[] {
+  return people.filter((p) => !p.archived && !isGiverOnly(p));
+}
+
+export interface Allocation {
+  allocatedCents: number;
+  unallocatedCents: number;
+  overCents: number;
+}
+
+/** Budget allocation: per-person budgets vs the season's overall budget (negative unallocated = over). */
+export function allocation(overallCents: number, budgets: number[]): Allocation {
+  const allocatedCents = budgets.reduce((s, b) => s + (Number.isFinite(b) ? b : 0), 0);
+  const unallocatedCents = overallCents - allocatedCents;
+  return { allocatedCents, unallocatedCents, overCents: Math.max(0, -unallocatedCents) };
 }

@@ -109,6 +109,10 @@ export interface Dashboard {
     committedCents: number;
     remainingCents: number;
     giftCount: number;
+    /** Feedback change: sum of person budgets (not archived, not giver-only), incl. the viewer's. */
+    allocatedCents?: number;
+    /** overallBudgetCents − allocatedCents; negative = over-allocated. */
+    unallocatedCents?: number;
   };
   people: DashboardPerson[];
   fairness: { personId: number; spentCents: number; committedCents: number; giftCount: number }[];

@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { GiftStatus, Person } from "../api";
 import { ApiError } from "../api";
-import { ratio, STATUS_FLOW, STATUS_LABEL } from "../lib/format";
+import { formatCents, ratio, STATUS_FLOW, STATUS_LABEL } from "../lib/format";
 import { IconX } from "./Icons";
 
 export const statusVar = (s: GiftStatus) => `var(--st-${s})`;
@@ -183,3 +183,74 @@ export function Toggle({ checked, onChange, label, hint }: { checked: boolean; o
     </label>
   );
 }
+
+export interface UndoState {
+  message: string;
+  undo: () => void;
+}
+
+/** A small bar above the tab bar after a one-tap action, with Undo. Hides itself after 5 s. */
+export function UndoBar({ state, onDone }: { state: UndoState | null; onDone: () => void }) {
+  useEffect(() => {
+    if (!state) return;
+    const t = setTimeout(onDone, 5000);
+    return () => clearTimeout(t);
+  }, [state, onDone]);
+  if (!state) return null;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 md:bottom-6" role="status">
+      <div className="sheet-in pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl bg-ink py-2 pl-4 pr-2 text-bg shadow-lg">
+        <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{state.message}</span>
+        <button
+          type="button"
+          className="min-h-[40px] shrink-0 rounded-xl px-3 text-[15px] font-bold text-bg underline decoration-2 underline-offset-4"
+          onClick={() => {
+            state.undo();
+            onDone();
+          }}
+        >
+          Undo
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Small round one-tap action used on list rows ("Bought", "Wrapped", "Given"). */
+export function QuickAction({ label, onClick, color, ariaLabel, icon }: { label: string; onClick: () => void; color: string; ariaLabel: string; icon?: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[15px] font-semibold transition-transform active:scale-95"
+      style={{ color, background: `color-mix(in srgb, ${color} 13%, transparent)` }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+/** "Allocated $X of $Y · $Z unallocated", or a warning when person budgets exceed the pot. */
+export function AllocationLine({ allocated, unallocated, overall, className = "mt-3" }: { allocated?: number; unallocated?: number; overall: number; className?: string }) {
+  if (allocated === undefined) return null;
+  const left = unallocated ?? overall - allocated;
+  if (left < 0)
+    return (
+      <p role="alert" className={`${className} rounded-xl bg-berry-soft px-3 py-2 text-[14px] font-semibold text-berry`}>
+        Over-allocated by {formatCents(-left, { round: true })}
+        <span className="tnum block text-[13px] font-medium">
+          Person budgets add up to {formatCents(allocated, { round: true })} of {formatCents(overall, { round: true })}
+        </span>
+      </p>
+    );
+  return (
+    <p className={`${className} tnum text-[14px] text-muted`}>
+      Allocated <b className="text-ink">{formatCents(allocated, { round: true })}</b> of {formatCents(overall, { round: true })}
+      {" · "}
+      {formatCents(left, { round: true })} unallocated
+    </p>
+  );
+}
+

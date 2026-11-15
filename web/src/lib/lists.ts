@@ -98,12 +98,12 @@ export const cellKey = (giverId: number, recipientId: number) => `${giverId}:${r
 
 /**
  * Givers checklist: rows are kids (givers), columns are family members (parents and kids;
- * Santa and other kinds are left out). A gift counts in every row whose kid is in `giverIds`.
+ * giver-only labels like Santa and "other" people are left out). A gift counts in every row whose kid is in `giverIds`.
  * Returned gifts don't count. Archived people are left out. The diagonal (a kid to themself)
  * is never filled. Hidden gifts never reach the client, so their cells just look empty.
  */
 export function buildGiversMatrix(gifts: Gift[], people: Person[]): GiversMatrix {
-  const active = people.filter((p) => !p.archived).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  const active = people.filter((p) => !p.archived && !p.giverOnly).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
   const givers = active.filter((p) => p.kind === "kid");
   const recipients = [...active.filter((p) => p.kind === "parent"), ...givers];
   const giverIds = new Set(givers.map((p) => p.id));

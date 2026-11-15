@@ -1,10 +1,11 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useSeason } from "../lib/season";
-import { IconGift, IconHome, IconPeople, IconSettings } from "./Icons";
+import { IconGift, IconHome, IconLists, IconPeople, IconSettings } from "./Icons";
 
 const tabs = [
   { to: "/", label: "Dashboard", icon: IconHome, end: true },
   { to: "/gifts", label: "Gifts", icon: IconGift, end: false },
+  { to: "/lists", label: "Lists", icon: IconLists, end: false },
   { to: "/people", label: "People", icon: IconPeople, end: false },
   { to: "/settings", label: "Settings", icon: IconSettings, end: false },
 ];
@@ -55,14 +56,14 @@ export default function Layout() {
       <header className="snowfall pt-safe sticky top-0 z-30 bg-band text-band-ink">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4 md:h-16">
           <Wordmark />
-          <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
+          <nav className="hidden items-center gap-0.5 md:flex" aria-label="Main">
             {tabs.map((t) => (
               <NavLink
                 key={t.to}
                 to={t.to}
                 end={t.end}
                 className={({ isActive }) =>
-                  `rounded-full px-4 py-2 text-[15px] font-semibold transition-colors ${
+                  `rounded-full px-3.5 py-2 text-[15px] font-semibold transition-colors ${
                     isActive ? "bg-band-ink text-band" : "text-band-ink hover:bg-[color-mix(in_srgb,var(--band-ink)_12%,transparent)]"
                   }`
                 }
@@ -83,7 +84,7 @@ export default function Layout() {
         className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface md:hidden"
         aria-label="Main"
       >
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           {tabs.map((t) => (
             <NavLink
               key={t.to}
@@ -95,7 +96,7 @@ export default function Layout() {
             >
               {({ isActive }) => (
                 <>
-                  <span className={`flex h-8 w-14 items-center justify-center rounded-full transition-colors ${isActive ? "bg-pine-soft" : ""}`}>
+                  <span className={`flex h-8 w-12 items-center justify-center rounded-full transition-colors ${isActive ? "bg-pine-soft" : ""}`}>
                     <t.icon size={22} strokeWidth={isActive ? 2.4 : 2} />
                   </span>
                   {t.label}

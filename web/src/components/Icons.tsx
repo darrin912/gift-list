@@ -111,3 +111,77 @@ export const IconLogout = (p: P) => (
     <path d="M14 4.5H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h8M10 12h10M17 8.5l3.5 3.5-3.5 3.5" />
   </Base>
 );
+export const IconLists = (p: P) => (
+  <Base {...p}>
+    <path d="M9 6.5h11M9 12h11M9 17.5h11" />
+    <path d="m3.5 6.5 1.2 1.2 2-2.4M3.5 12l1.2 1.2 2-2.4" />
+    <circle cx="5" cy="17.5" r="1.1" />
+  </Base>
+);
+export const IconCart = (p: P) => (
+  <Base {...p}>
+    <path d="M3 4h2.2l2.2 11h10.4l2-7.5H6.4" />
+    <circle cx="9" cy="19" r="1.5" />
+    <circle cx="17" cy="19" r="1.5" />
+  </Base>
+);
+export const IconRibbon = (p: P) => (
+  <Base {...p}>
+    <rect x="3.5" y="9" width="17" height="11.5" rx="1.5" />
+    <path d="M12 9v11.5M3.5 13.5h17" />
+    <path d="M12 9c-1.2-3-5-4.2-5-1.8C7 8.8 10 9 12 9Zm0 0c1.2-3 5-4.2 5-1.8C17 8.8 14 9 12 9Z" />
+  </Base>
+);
+export const IconGrid = (p: P) => (
+  <Base {...p}>
+    <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+    <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+    <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+    <path d="M14 17h6M17 14v6" />
+  </Base>
+);
+export const IconBulb = (p: P) => (
+  <Base {...p}>
+    <path d="M9 17.5h6M10 21h4" />
+    <path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2v1.5h5V16c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3Z" />
+  </Base>
+);
+export const IconClock = (p: P) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5V12l3 2" />
+  </Base>
+);
+export const IconTable = (p: P) => (
+  <Base {...p}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="1.5" />
+    <path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10" />
+  </Base>
+);
+export const IconCards = (p: P) => (
+  <Base {...p}>
+    <rect x="3.5" y="4" width="17" height="7" rx="1.5" />
+    <rect x="3.5" y="13" width="17" height="7" rx="1.5" />
+  </Base>
+);
+export const IconSparkle = (p: P) => (
+  <Base {...p}>
+    <path d="M12 3.5 13.8 9l5.7 1.8-5.7 1.9L12 18.5l-1.8-5.8-5.7-1.9L10.2 9z" />
+    <path d="M19 3.5v3M17.5 5h3" />
+  </Base>
+);
+export const IconDownload = (p: P) => (
+  <Base {...p}>
+    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14" />
+  </Base>
+);
+export const IconUpload = (p: P) => (
+  <Base {...p}>
+    <path d="M12 15.5V4.5M7.5 9 12 4.5 16.5 9M5 19.5h14" />
+  </Base>
+);
+export const IconArrowRight = (p: P) => (
+  <Base {...p}>
+    <path d="M4.5 12h15M14 6.5l5.5 5.5-5.5 5.5" />
+  </Base>
+);

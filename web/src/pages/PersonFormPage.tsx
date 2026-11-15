@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Person, type PersonInput, type PersonKind } from "../api";
+import { api, ApiError, type Person, type PersonInput, type PersonKind } from "../api";
 import { KIND_LABEL } from "../lib/format";
 import { usePeople } from "../lib/queries";
-import { ErrorNote, Loading, PersonBadge, Sheet } from "../components/ui";
+import { ErrorNote, Loading, PersonBadge, Sheet, Toggle } from "../components/ui";
 import { IconPlus, IconTrash, IconX } from "../components/Icons";
 
 export const PERSON_COLORS = ["#c0392b", "#d35400", "#c49a1a", "#2e8b57", "#1f7a8c", "#3a6ea5", "#6c4fb0", "#b0417a", "#5d6d63"];
@@ -49,6 +49,7 @@ function PersonForm({ person, onClose, afterDelete }: { person?: Person; onClose
     likes: person?.likes ?? "",
     dislikes: person?.dislikes ?? "",
     notes: person?.notes ?? "",
+    giverOnly: person?.giverOnly === true,
   }));
   const [err, setErr] = useState<string | null>(null);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
@@ -95,6 +96,7 @@ function PersonForm({ person, onClose, afterDelete }: { person?: Person; onClose
       likes: f.likes,
       dislikes: f.dislikes,
       notes: f.notes,
+      giverOnly: f.giverOnly,
     });
   }
 
@@ -149,6 +151,15 @@ function PersonForm({ person, onClose, afterDelete }: { person?: Person; onClose
             ))}
           </div>
         </fieldset>
+
+        <div className="card px-4">
+          <Toggle
+            checked={f.giverOnly}
+            onChange={(v) => set("giverOnly", v)}
+            label="Only gives gifts (a label like Santa)"
+            hint="Shows up in “From”, never as a recipient or in budgets."
+          />
+        </div>
 
         <fieldset>
           <legend className="label">Color</legend>
@@ -246,7 +257,13 @@ function PersonForm({ person, onClose, afterDelete }: { person?: Person; onClose
         </div>
 
         {err && <p role="alert" className="rounded-xl bg-berry-soft px-4 py-3 text-[15px] font-medium text-berry">{err}</p>}
-        <ErrorNote error={save.error || archive.error || unarchive.error} />
+        <ErrorNote
+          error={
+            save.error instanceof ApiError && save.error.status === 409 && f.giverOnly
+              ? new Error(`${f.name.trim() || "This person"} already has gifts, so they can't be giver-only. Move or delete those gifts first.`)
+              : save.error || archive.error || unarchive.error
+          }
+        />
         <button type="submit" className="hidden" aria-hidden="true" tabIndex={-1} />
       </form>
     </Sheet>

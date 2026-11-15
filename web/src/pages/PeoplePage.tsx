@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { Person, PersonKind } from "../api";
-import { KIND_LABEL } from "../lib/format";
+import { isGiverOnly, KIND_LABEL } from "../lib/format";
 import { usePeople } from "../lib/queries";
 import { EmptyState, ErrorNote, Loading, PageHeader, PersonBadge } from "../components/ui";
 import { IconChevronRight, IconPlus } from "../components/Icons";
@@ -15,7 +15,9 @@ const GROUPS: { kind: PersonKind; title: string }[] = [
 export default function PeoplePage() {
   const [showArchived, setShowArchived] = useState(false);
   const people = usePeople(showArchived);
-  const list = people.data ?? [];
+  const all = people.data ?? [];
+  const list = all.filter((p) => !isGiverOnly(p));
+  const tags = all.filter(isGiverOnly);
   const kids = list.filter((p) => p.kind === "kid" && !p.archived);
 
   return (
@@ -49,6 +51,22 @@ export default function PeoplePage() {
               </section>
             );
           })}
+          {tags.length > 0 && (
+            <section aria-labelledby="tags-h">
+              <h2 id="tags-h" className="mb-2 text-[15px] font-semibold text-muted">Gift tags (givers only)</h2>
+              <ul className="flex flex-wrap gap-2">
+                {tags.map((p) => (
+                  <li key={p.id}>
+                    <Link to={`/people/${p.id}`} className={`chip ${p.archived ? "opacity-60" : ""}`}>
+                      <PersonBadge person={p} size={26} />
+                      {p.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[13px] text-muted">Labels you can pick in “From”. They never receive gifts.</p>
+            </section>
+          )}
           <label className="flex min-h-[48px] items-center gap-3 text-muted">
             <input type="checkbox" className="h-5 w-5 accent-[var(--pine)]" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
             Show archived people

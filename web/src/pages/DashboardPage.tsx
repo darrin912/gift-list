@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Dashboard, DashboardPerson, GiftStatus, Person } from "../api";
-import { formatCents, formatDate, ratio, returnPhrase, ALL_STATUSES, STATUS_LABEL } from "../lib/format";
-import { usePeople, usePeopleMap, useDashboard } from "../lib/queries";
+import { formatCents, formatDate, isGiverOnly, ratio, returnPhrase, ALL_STATUSES, STATUS_LABEL } from "../lib/format";
+import { useActivity, usePeople, usePeopleMap, useDashboard } from "../lib/queries";
+import { ActivityRow } from "../components/Activity";
 import { useSeason } from "../lib/season";
-import { EmptyState, ErrorNote, Loading, MoneyBar, PageHeader, PersonBadge, statusVar } from "../components/ui";
+import { AllocationLine, EmptyState, ErrorNote, Loading, MoneyBar, PageHeader, PersonBadge, statusVar } from "../components/ui";
 import { IconChevronRight } from "../components/Icons";
 
 export default function DashboardPage() {
@@ -43,6 +44,7 @@ export default function DashboardPage() {
           <div className="min-w-0 space-y-5">
             <PotCard d={dash.data} />
             <Attention d={dash.data} map={map} />
+            <RecentActivity map={map} />
           </div>
           <div className="min-w-0 space-y-5">
             {kids.length === 0 ? <AddPeoplePrompt /> : <Fairness d={dash.data} map={map} />}
@@ -90,6 +92,7 @@ function PotCard({ d }: { d: Dashboard }) {
           </span>
         </p>
         <MoneyBar spent={t.spentCents} committed={t.committedCents} budget={t.budgetCents} className="mt-4 !h-4" />
+        <AllocationLine allocated={t.allocatedCents} unallocated={t.unallocatedCents} overall={t.budgetCents} />
       </div>
       <dl className="grid grid-cols-3 border-t border-line text-center">
         <Stat label="Spent" value={formatCents(t.spentCents, { round: true })} swatch="var(--pine)" />
@@ -122,7 +125,7 @@ function Stat({ label, value, swatch }: { label: string; value: string; swatch?:
 }
 
 function Fairness({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
-  const rows = d.fairness.filter((f) => map.has(f.personId));
+  const rows = d.fairness.filter((f) => map.has(f.personId) && !isGiverOnly(map.get(f.personId)!));
   if (!rows.length) return null;
   const maxMoney = Math.max(...rows.map((r) => r.spentCents + r.committedCents), 1);
   const maxCount = Math.max(...rows.map((r) => r.giftCount), 1);
@@ -167,7 +170,7 @@ function Fairness({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
 
 function PeopleCards({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
   const rows = d.people
-    .filter((r) => map.has(r.personId))
+    .filter((r) => map.has(r.personId) && !isGiverOnly(map.get(r.personId)!))
     .sort((a, b) => (map.get(a.personId)!.sortOrder ?? 0) - (map.get(b.personId)!.sortOrder ?? 0));
   if (!rows.length) return null;
   return (
@@ -206,6 +209,7 @@ function PersonCard({ r, person }: { r: DashboardPerson; person: Person }) {
       {!r.hidden && (
         <>
           {r.budgetCents > 0 && <MoneyBar spent={r.spentCents} committed={r.committedCents} budget={r.budgetCents} className="mt-3" />}
+          {r.stockingBudgetCents > 0 && <StockingLine r={r} />}
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
             {ALL_STATUSES.filter((s) => (r.countsByStatus[s] ?? 0) > 0).map((s: GiftStatus) => (
               <span key={s} className="inline-flex items-center gap-1">
@@ -303,5 +307,50 @@ function Row({ to, title, meta, tone, dot }: { to: string; title: string; meta: 
         <IconChevronRight size={18} className="shrink-0 text-muted" />
       </Link>
     </li>
+  );
+}
+
+function StockingLine({ r }: { r: DashboardPerson }) {
+  const spent = r.stockingSpentCents ?? 0;
+  const committed = r.stockingCommittedCents ?? 0;
+  const used = spent + committed;
+  const over = used > r.stockingBudgetCents;
+  return (
+    <div className="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-2.5 gap-y-1">
+      <span className="text-[15px]" aria-hidden="true">🧦</span>
+      <div className="flex items-baseline justify-between gap-2 text-[13px]">
+        <span className="text-muted">Stocking</span>
+        <span className={`tnum ${over ? "font-semibold text-berry" : "text-muted"}`}>
+          <b className={over ? "" : "text-ink"}>{formatCents(used, { round: true })}</b> of {formatCents(r.stockingBudgetCents, { round: true })}
+        </span>
+      </div>
+      <MoneyBar spent={spent} committed={committed} budget={r.stockingBudgetCents} className="col-start-2 !h-1.5" />
+    </div>
+  );
+}
+
+function RecentActivity({ map }: { map: Map<number, Person> }) {
+  const activity = useActivity(5);
+  const list = activity.data ?? [];
+  return (
+    <section className="card" aria-labelledby="act-h">
+      <div className="flex items-baseline justify-between px-5 pb-1 pt-5">
+        <h2 id="act-h" className="text-[19px] font-bold">Recent activity</h2>
+        <Link to="/activity" className="text-[15px] font-semibold text-pine">See all</Link>
+      </div>
+      {activity.isLoading ? (
+        <div className="px-5"><Loading /></div>
+      ) : activity.error ? (
+        <div className="px-5 pb-5"><ErrorNote error={activity.error} /></div>
+      ) : list.length === 0 ? (
+        <p className="px-5 pb-5 text-muted">No changes yet.</p>
+      ) : (
+        <ul className="pb-2">
+          {list.slice(0, 5).map((e) => (
+            <ActivityRow key={e.id} e={e} map={map} compact />
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

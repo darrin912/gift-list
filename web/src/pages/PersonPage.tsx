@@ -16,7 +16,9 @@ export default function PersonPage() {
   const map = usePeopleMap();
   const me = useMe();
   const { season, seasonId } = useSeason();
-  const gifts = useGifts({ seasonId, recipientId: id }, seasonId !== undefined);
+  const giverOnly = people.data?.find((x) => x.id === id)?.giverOnly === true;
+  // Giver-only labels (Santa) never receive gifts: show the gifts tagged from them instead.
+  const gifts = useGifts(giverOnly ? { seasonId, giverId: id } : { seasonId, recipientId: id }, seasonId !== undefined && !!people.data);
 
   if (people.isLoading) return <Loading />;
   const p = people.data?.find((x) => x.id === id);
@@ -50,7 +52,7 @@ export default function PersonPage() {
 
       <div className="grid gap-5 md:grid-cols-[1fr_1.4fr] md:items-start">
         <div className="space-y-5">
-          {season && !isMe && <BudgetCard personId={p.id} seasonId={season.id} seasonName={season.name} spent={spent} committed={committed} />}
+          {season && !isMe && !giverOnly && <BudgetCard personId={p.id} seasonId={season.id} seasonName={season.name} spent={spent} committed={committed} />}
 
           <section className="card p-5">
             <h2 className="mb-3 text-[19px] font-bold">Sizes</h2>
@@ -80,8 +82,8 @@ export default function PersonPage() {
 
         <section>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-[19px] font-bold">Gifts{season ? ` · ${season.name}` : ""}</h2>
-            {!isMe && (
+            <h2 className="text-[19px] font-bold">{giverOnly ? `From ${p.name}` : "Gifts"}{season ? ` · ${season.name}` : ""}</h2>
+            {!isMe && !giverOnly && (
               <Link to={`/gifts/new?recipient=${p.id}`} className="chip">
                 <IconPlus size={16} /> Add
               </Link>
@@ -92,7 +94,11 @@ export default function PersonPage() {
           ) : gifts.isLoading ? (
             <Loading />
           ) : list.length === 0 ? (
+            giverOnly ? (
+              <EmptyState title={`No gifts from ${p.name} yet`} body="Pick this tag in a gift's “From” field." />
+            ) : (
             <EmptyState title={`No gifts for ${p.name} yet`} action={<Link to={`/gifts/new?recipient=${p.id}`} className="btn-primary"><IconPlus size={20} /> Add a gift</Link>} />
+            )
           ) : (
             <div className="space-y-5">
               {ALL_STATUSES.map((s) => {
@@ -107,7 +113,7 @@ export default function PersonPage() {
                     <ul className="grid gap-3">
                       {group.map((g) => (
                         <li key={g.id}>
-                          <GiftCard gift={g} map={map} showRecipient={false} />
+                          <GiftCard gift={g} map={map} showRecipient={giverOnly} />
                         </li>
                       ))}
                     </ul>

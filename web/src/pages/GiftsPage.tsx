@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { GiftCategory, GiftFilters, GiftStatus } from "../api";
-import { ALL_STATUSES, CATEGORIES, CATEGORY_LABEL, effectivePriceCents, formatCents, STATUS_LABEL } from "../lib/format";
+import { ALL_STATUSES, CATEGORIES, CATEGORY_LABEL, effectivePriceCents, formatCents, isGiverOnly, STATUS_LABEL } from "../lib/format";
+import { readGiftsView, storeGiftsView, type GiftsView } from "../lib/prefs";
+import GiftTable from "../components/GiftTable";
 import { useGifts, usePeople, usePeopleMap, useStores } from "../lib/queries";
 import { useSeason } from "../lib/season";
 import GiftCard from "../components/GiftCard";
 import { EmptyState, ErrorNote, Loading, PageHeader, statusVar } from "../components/ui";
-import { IconFilter, IconPlus, IconSearch, IconStar, IconX } from "../components/Icons";
+import { IconCards, IconFilter, IconPlus, IconSearch, IconStar, IconTable, IconX } from "../components/Icons";
 
 /** Scope values in the URL: a season (default), "inbox" for the ideas inbox, or "all". */
 type Scope = "season" | "inbox" | "all";
@@ -19,6 +21,11 @@ export default function GiftsPage() {
   const stores = useStores();
   const [showFilters, setShowFilters] = useState(false);
   const [search, setSearch] = useState(sp.get("q") ?? "");
+  const [view, setViewState] = useState<GiftsView>(readGiftsView);
+  const setView = (v: GiftsView) => {
+    setViewState(v);
+    storeGiftsView(v);
+  };
 
   const scope = (sp.get("scope") as Scope) || "season";
   const statuses = (sp.get("status")?.split(",").filter(Boolean) ?? []) as GiftStatus[];
@@ -153,7 +160,7 @@ export default function GiftsPage() {
         <div id="gift-filters" className="card mt-3 grid gap-3 p-4 sm:grid-cols-2">
           <Select label="For" value={sp.get("recipient") ?? ""} onChange={(v) => set("recipient", v)}>
             <option value="">Anyone</option>
-            {activePeople.map((p) => (
+            {activePeople.filter((p) => !isGiverOnly(p)).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.emoji ? `${p.emoji} ` : ""}
                 {p.name}
@@ -219,17 +226,43 @@ export default function GiftsPage() {
           />
         ) : (
           <>
-            <p className="tnum mb-3 text-[14px] text-muted">
-              {list.length} {list.length === 1 ? "gift" : "gifts"}
-              {total > 0 && ` · ${formatCents(total)} planned or bought`}
-            </p>
-            <ul className="grid gap-3 md:grid-cols-2">
-              {list.map((g) => (
-                <li key={g.id}>
-                  <GiftCard gift={g} map={map} />
-                </li>
-              ))}
-            </ul>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="tnum min-w-0 text-[14px] text-muted">
+                {list.length} {list.length === 1 ? "gift" : "gifts"}
+                {total > 0 && ` · ${formatCents(total)} planned or bought`}
+              </p>
+              <div className="flex shrink-0 gap-0.5 rounded-xl bg-surface-2 p-1" role="group" aria-label="View">
+                {(
+                  [
+                    ["cards", "Cards", IconCards],
+                    ["table", "Table", IconTable],
+                  ] as const
+                ).map(([v, label, Icon]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={view === v}
+                    aria-label={`${label} view`}
+                    title={`${label} view`}
+                    onClick={() => setView(v)}
+                    className={`flex h-9 w-10 items-center justify-center rounded-lg transition-colors ${view === v ? "bg-surface text-ink shadow-sm" : "text-muted"}`}
+                  >
+                    <Icon size={19} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            {view === "table" ? (
+              <GiftTable gifts={list} map={map} />
+            ) : (
+              <ul className="grid gap-3 md:grid-cols-2">
+                {list.map((g) => (
+                  <li key={g.id}>
+                    <GiftCard gift={g} map={map} />
+                  </li>
+                ))}
+              </ul>
+            )}
           </>
         )}
       </div>
