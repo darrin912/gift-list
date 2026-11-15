@@ -29,7 +29,17 @@ export default function GiftFormPage() {
   });
 
   const close = useClose();
+  // A new gift defaults to the selected season, so wait for the seasons to load
+  // (otherwise a cold load of /gifts/new would silently file it in the ideas inbox).
+  const { isLoading: seasonsLoading } = useSeason();
 
+  if (giftId === undefined && seasonsLoading) {
+    return (
+      <Sheet title="Add gift" onClose={close}>
+        <Loading />
+      </Sheet>
+    );
+  }
   if (giftId !== undefined && !q.data) {
     return (
       <Sheet title="Gift" onClose={close}>

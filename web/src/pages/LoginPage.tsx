@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
 import { qk, useMe } from "../lib/queries";
@@ -8,21 +8,24 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from || "/";
+  const rawFrom = (location.state as { from?: string } | null)?.from;
+  // Only same-app paths; never back to /login itself.
+  const from =
+    rawFrom && rawFrom.startsWith("/") && !rawFrom.startsWith("//") && !rawFrom.includes("\\") && !rawFrom.startsWith("/login") ? rawFrom : "/";
   const me = useMe();
 
   const login = useMutation({
     mutationFn: () => api.auth.login(email.trim(), password),
     onSuccess: (user) => {
       qc.clear();
+      // Setting `me` re-renders this page, and the <Navigate> below sends the user on to `from`.
+      // (Navigating here as well raced that redirect and could drop the deep link.)
       qc.setQueryData(qk.me, user);
-      navigate(from === "/login" ? "/" : from, { replace: true });
     },
   });
 
-  if (me.data) return <Navigate to="/" replace />;
+  if (me.data) return <Navigate to={from} replace />;
 
   const err = login.error;
   const message =

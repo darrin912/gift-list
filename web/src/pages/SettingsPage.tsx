@@ -5,7 +5,7 @@ import { api, type Person, type Season, type SeasonInput, type SeasonKind } from
 import { centsToInput, formatCents, formatDate, parseDollars, SEASON_KIND_LABEL } from "../lib/format";
 import { qk, useBudgets, useMe, usePeople } from "../lib/queries";
 import { useSeason } from "../lib/season";
-import { ErrorNote, PageHeader, PersonBadge, Toggle } from "../components/ui";
+import { ErrorNote, Loading, PageHeader, PersonBadge, Toggle } from "../components/ui";
 import { IconLogout, IconPlus } from "../components/Icons";
 import { Money } from "./GiftFormPage";
 
@@ -173,15 +173,21 @@ function Budgets() {
   return (
     <Section id="budgets" title="Budgets" sub={`Per person for ${season.name}. Saves when you leave a field.`}>
       <ErrorNote error={budgets.error} />
-      <div className="grid grid-cols-[1fr_6.5rem_6.5rem] items-center gap-x-2 gap-y-2">
-        <span />
-        <span className="text-[13px] font-semibold text-muted">Gifts</span>
-        <span className="text-[13px] font-semibold text-muted">🧦 Stocking</span>
-        {list.map((p) => {
-          const row = budgets.data?.find((b) => b.personId === p.id);
-          return <BudgetRow key={`${p.id}-${row?.budgetCents}-${row?.stockingBudgetCents}`} seasonId={season.id} person={p} budget={row?.budgetCents ?? 0} stocking={row?.stockingBudgetCents ?? 0} />;
-        })}
-      </div>
+      {budgets.isLoading ? (
+        <Loading />
+      ) : (
+        <div className="grid grid-cols-[1fr_6.5rem_6.5rem] items-center gap-x-2 gap-y-2">
+          <span />
+          <span className="text-[13px] font-semibold text-muted">Gifts</span>
+          <span className="text-[13px] font-semibold text-muted">🧦 Stocking</span>
+          {list.map((p) => {
+            const row = budgets.data?.find((b) => b.personId === p.id);
+            // Keyed by season + person only: keying on the saved values remounted the row after
+            // every save, wiping whatever was being typed in the other field of that row.
+            return <BudgetRow key={`${season.id}-${p.id}`} seasonId={season.id} person={p} budget={row?.budgetCents ?? 0} stocking={row?.stockingBudgetCents ?? 0} />;
+          })}
+        </div>
+      )}
     </Section>
   );
 }

@@ -40,11 +40,11 @@ export default function DashboardPage() {
       <ErrorNote error={dash.error} />
       {dash.data && (
         <div className="grid gap-5 md:grid-cols-[1.15fr_1fr] md:items-start">
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-5">
             <PotCard d={dash.data} />
             <Attention d={dash.data} map={map} />
           </div>
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-5">
             {kids.length === 0 ? <AddPeoplePrompt /> : <Fairness d={dash.data} map={map} />}
             <PeopleCards d={dash.data} map={map} />
           </div>
