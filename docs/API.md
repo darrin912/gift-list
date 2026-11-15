@@ -139,3 +139,58 @@ The UI shows "Allocated $X of $Y · $Z unallocated", or a warning "Over-allocate
 - `POST`/`PATCH /gifts` with a giver-only `recipientId` → 400. `PUT` budgets for a giver-only person → 400. `PATCH /people/:id` setting `giverOnly: true` on someone who already receives gifts → 409.
 - The dashboard's `people[]`, `fairness`, and allocation all exclude giver-only people.
 - UI: giver-only people never appear in recipient pickers, dashboard person cards, budgets tables, or givers-matrix columns. On the People screen they get a small separate section, "Gift tags (givers only)", e.g. 🎅 Santa. The person form has a toggle "Only gives gifts (a label like Santa)". Nothing in the frontend matches on the name "Santa" any more.
+
+---
+
+# Phase 3 additions (part A: features that don't need file storage)
+
+The usual rules still apply: cents, `{ error }`, the session cookie, and **the surprise rule on every route**. New migrations start at `0004`.
+
+## History and the "given before" warning
+- `GET /history?personId=` → `[{ season: Season, gifts: Gift[] }]`, newest season first. Only seasons other than the active one; ideas-inbox gifts are excluded; the surprise rule applies (past seasons are visible to their recipient because the rule lifts once the date has passed).
+- `GET /gifts/similar?recipientId=&title=&excludeId=` → `[{ giftId, title, seasonName, seasonDate, status }]`, max 5. Matches the same recipient in **other** seasons, where the normalized titles are equal or one contains the other (lowercase, punctuation stripped, collapsed whitespace, both at least 4 characters). Gifts with status `returned` or `idea` are excluded. Hidden gifts are excluded.
+- UI: the gift form shows "🔁 Looks like Ava got *LEGO Set* in Christmas 2025" while typing (debounced) and after save. The person page gets a **History** section, grouped by year.
+
+## Kids' name draw
+`exchange_draws(season_id, giver_person_id, recipient_person_id, created_at)`.
+- `GET /seasons/:id/draw` → `[{ giverId, recipientId }]`
+- `POST /seasons/:id/draw` with `{ participantIds: number[], avoidPreviousSeason: boolean }` → `[{ giverId, recipientId }]`
+  - At least 2 participants. All must be non-giver-only and not archived.
+  - Nobody draws themselves. When `avoidPreviousSeason` is set, it avoids the pairing from the most recent earlier season of the same kind, if one exists; if that's impossible, it falls back and returns a `"note"`.
+  - It's a random derangement using `crypto.getRandomValues`, and it **replaces** any existing draw.
+  - Response: `{ pairs, note? }`.
+- `DELETE /seasons/:id/draw` → `{ ok: true }`
+- The draw is visible to both parents; kids don't log in.
+- UI: a Lists → "Name draw" page with a participant picker (kids preselected), a draw button with a short reveal animation, and the pairs. Each pair has "+ gift" (prefills the recipient and giver), and the pair shows ✓ once a gift exists in the season with that giver and recipient.
+
+## Price-drop watch
+New gift columns: `watch_price` (bool, default 0), `last_seen_price_cents`, `lowest_seen_price_cents`, `last_checked_at`, `price_dropped_at`.
+- `Gift` gains `watchPrice`, `lastSeenPriceCents`, `lowestSeenPriceCents`, `lastCheckedAt`, `priceDroppedAt`.
+- A **Cron Trigger once a day** (`"crons": ["17 13 * * *"]`) checks up to 25 watched gifts that have a `url` and status `idea` or `planned`, oldest checked first.
+  - It reuses the link-preview fetcher and parser with all the same SSRF guards.
+  - When the price found is lower than the previous `last_seen_price_cents` (or lower than `est_price_cents` on the first check) by at least $1 or 5%, it sets `price_dropped_at` and writes an activity row `Price dropped on "X": $59.99 → $44.99` (no user, attributed to the system; the activity feed shows "Price watch").
+  - Failures are skipped silently, but `last_checked_at` is still updated.
+- `POST /gifts/:id/check-price` → the updated Gift. Same logic, on demand; limited to 10 per user per minute.
+- UI: a "Watch price" toggle in the gift form, shown when there's a URL. Badges "⬇ Price drop" and a "Lowest $X" line on cards. A "Check now" button.
+
+## Markdown notes
+Gift `description` and person `notes` are rendered as Markdown in read views: bold, italics, links, lists, line breaks. Raw HTML is **not** rendered: escape it, and allow only `http(s)`/`mailto` links with `rel="noopener noreferrer" target="_blank"`. Use a small, well-known library such as `marked` plus `DOMPurify`, pinned, or a minimal custom renderer with tests. Edit views stay as plain textareas with a "Markdown supported" hint.
+
+## Birthday and anniversary seasons
+`seasons` gains `honoree_person_id` (nullable). `Season` gains `honoreeId: number|null`.
+- For kind `birthday`, it's required. For `anniversary`, it's optional and means both parents.
+- Creating a birthday season with an honoree auto-suggests the name "Ava's Birthday 2027" and the date from the person's `birthday` (next occurrence).
+- The dashboard for a birthday season shows the honoree card first. The fairness strip is hidden for birthday seasons.
+- The surprise rule is unchanged.
+- UI: the season switcher groups seasons as Christmas, Birthdays, Other. The People page shows "🎂 in N days" when a birthday is within 60 days, with a "Plan birthday" button that creates the season.
+
+## Passkeys (Face ID / Touch ID)
+`passkeys(id, user_id, credential_id unique, public_key, counter, transports, name, created_at, last_used_at)`. Built with `@simplewebauthn/server` (pinned; must run on Workers) and `@simplewebauthn/browser`.
+- RP ID = the request hostname (`gifts.nielsonlife.com` in production, `localhost` in dev). Origin is checked against the request origin. Challenges are stored server-side with a 5-minute TTL (a D1 table), single use.
+- `POST /auth/passkey/register/options` (signed in) → options. `POST /auth/passkey/register/verify` with `{ response, name }` → `{ ok }`.
+- `POST /auth/passkey/login/options` (public) → options (discoverable credentials, no email needed). `POST /auth/passkey/login/verify` (public, counts toward the login rate limit) → `{ user }` and sets the session cookie, exactly like password login.
+- `GET /auth/passkeys` → `[{ id, name, createdAt, lastUsedAt }]`. `DELETE /auth/passkeys/:id`.
+- UI: the login page gets a "Sign in with Face ID / passkey" button, shown when `window.PublicKeyCredential` exists. In Settings → Security: "Add a passkey" (default name from the user agent, e.g. "iPhone"), plus a list with remove. Password login stays.
+
+# Phase 3 part B (waiting on a storage decision)
+Receipt photos, avatars, and nightly backups need file storage. Not part of this round.
