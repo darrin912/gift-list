@@ -123,3 +123,43 @@ export function isGiftHidden(
 export function isSeasonSecret(season: SeasonForRule, today: string): boolean {
   return !season.archived && season.date >= today;
 }
+
+// ---------------------------------------------------------------- "given before" (similar titles)
+
+/** Minimum normalized length for a title to take part in similar-title matching. */
+export const SIMILAR_MIN_LENGTH = 4;
+
+/** Lowercase, punctuation stripped, whitespace collapsed: "LEGO® Set!" -> "lego set". */
+export function normalizeTitle(title: string): string {
+  return title
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "") // accents
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Equal or one contains the other, after normalizing; both must be at least 4 characters. */
+export function titlesSimilar(a: string, b: string): boolean {
+  const x = normalizeTitle(a);
+  const y = normalizeTitle(b);
+  if (x.length < SIMILAR_MIN_LENGTH || y.length < SIMILAR_MIN_LENGTH) return false;
+  return x === y || x.includes(y) || y.includes(x);
+}
+
+// ---------------------------------------------------------------- price watch
+
+/** A price drop counts when it's at least $1 or at least 5% of the reference price. */
+export const PRICE_DROP_MIN_CENTS = 100;
+export const PRICE_DROP_MIN_FRACTION = 0.05;
+
+/**
+ * Whether `found` is a drop worth reporting against `reference` (the last seen price, or the
+ * estimate on the first check). No reference -> never a drop.
+ */
+export function isPriceDrop(reference: number | null, found: number): boolean {
+  if (reference == null || found >= reference) return false;
+  const diff = reference - found;
+  return diff >= PRICE_DROP_MIN_CENTS || diff >= reference * PRICE_DROP_MIN_FRACTION;
+}

@@ -34,6 +34,7 @@ export function toSeason(s: SeasonRow): ApiSeason {
     overallBudgetCents: s.overallBudgetCents,
     isActive: s.isActive,
     archived: s.archived,
+    honoreeId: s.honoreeId ?? null,
   };
 }
 
@@ -56,6 +57,11 @@ export function toGift(g: GiftRow, giverIds: number[]): ApiGift {
     orderNumber: g.orderNumber,
     trackingUrl: g.trackingUrl,
     returnBy: g.returnBy,
+    watchPrice: g.watchPrice,
+    lastSeenPriceCents: g.lastSeenPriceCents,
+    lowestSeenPriceCents: g.lowestSeenPriceCents,
+    lastCheckedAt: g.lastCheckedAt,
+    priceDroppedAt: g.priceDroppedAt,
     giverIds: [...giverIds].sort((a, b) => a - b),
     createdBy: g.createdBy,
     updatedBy: g.updatedBy,

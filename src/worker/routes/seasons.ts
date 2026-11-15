@@ -1,12 +1,39 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, ne } from "drizzle-orm";
 import { Hono } from "hono";
-import { people, personBudgets, seasons } from "../../db/schema";
+import { exchangeDraws, people, personBudgets, seasons, type SeasonKind } from "../../db/schema";
+import { drawNames } from "../draw";
 import { fail, idParam, notFound, parseJson } from "../http";
 import { toSeason } from "../serialize";
-import type { AppEnv } from "../types";
-import { budgetPut, seasonCreate, seasonPatch } from "../validation";
+import type { AppEnv, Variables } from "../types";
+import { budgetPut, drawBody, seasonCreate, seasonPatch } from "../validation";
+
+type Db = Variables["db"];
 
 export const seasonRoutes = new Hono<AppEnv>();
+
+/** Season kinds that may have an honoree; for birthdays it's required. */
+const HONOREE_KINDS: readonly SeasonKind[] = ["birthday", "anniversary", "other"];
+
+/**
+ * Validates the honoree for the season's resulting kind. `changed` = the honoree is being set
+ * in this request (only then is the person itself re-checked).
+ */
+async function checkHonoree(db: Db, kind: SeasonKind, honoreeId: number | null, changed: boolean): Promise<void> {
+  if (honoreeId == null) {
+    if (kind === "birthday") fail(400, "honoreeId: a birthday season needs an honoree");
+    return;
+  }
+  if (!HONOREE_KINDS.includes(kind)) fail(400, `honoreeId: ${kind} seasons don't have an honoree`);
+  if (!changed) return;
+  const p = await db
+    .select({ id: people.id, giverOnly: people.giverOnly, archived: people.archived })
+    .from(people)
+    .where(eq(people.id, honoreeId))
+    .get();
+  if (!p) fail(400, "honoreeId: person not found");
+  if (p.giverOnly) fail(400, "honoreeId: this person only gives gifts");
+  if (p.archived) fail(400, "honoreeId: this person is archived");
+}
 
 seasonRoutes.get("/", async (c) => {
   const rows = await c.var.db.select().from(seasons).orderBy(desc(seasons.date), desc(seasons.id)).all();
@@ -16,6 +43,7 @@ seasonRoutes.get("/", async (c) => {
 seasonRoutes.post("/", async (c) => {
   const body = await parseJson(c, seasonCreate);
   const db = c.var.db;
+  await checkHonoree(db, body.kind, body.honoreeId, true);
   if (body.isActive) {
     // Deactivate the others first (a unique index allows only one active season).
     const [, inserted] = await db.batch([
@@ -35,6 +63,11 @@ seasonRoutes.patch("/:id", async (c) => {
   const existing = await db.select().from(seasons).where(eq(seasons.id, id)).get();
   if (!existing) notFound("Season not found");
   if (Object.keys(body).length === 0) return c.json(toSeason(existing));
+  const kind = body.kind ?? existing.kind;
+  // Switching to Christmas drops a leftover honoree unless the request sets one explicitly.
+  if (body.honoreeId === undefined && kind === "christmas" && existing.honoreeId != null) body.honoreeId = null;
+  const honoreeChanged = body.honoreeId !== undefined && body.honoreeId !== existing.honoreeId;
+  await checkHonoree(db, kind, body.honoreeId !== undefined ? body.honoreeId : existing.honoreeId, honoreeChanged);
   if (body.isActive) {
     const [, updated] = await db.batch([
       db.update(seasons).set({ isActive: false }).where(and(eq(seasons.isActive, true), ne(seasons.id, id))),
@@ -89,4 +122,73 @@ seasonRoutes.put("/:id/budgets/:personId", async (c) => {
     })
     .get();
   return c.json(row);
+});
+
+// ---------------------------------------------------------------- kids' name draw
+
+async function loadDraw(db: Db, seasonId: number) {
+  return db
+    .select({ giverId: exchangeDraws.giverId, recipientId: exchangeDraws.recipientId })
+    .from(exchangeDraws)
+    .where(eq(exchangeDraws.seasonId, seasonId))
+    .orderBy(exchangeDraws.giverId)
+    .all();
+}
+
+async function requireSeason(db: Db, id: number) {
+  const season = await db.select().from(seasons).where(eq(seasons.id, id)).get();
+  if (!season) notFound("Season not found");
+  return season;
+}
+
+seasonRoutes.get("/:id/draw", async (c) => {
+  const id = idParam(c);
+  await requireSeason(c.var.db, id);
+  return c.json(await loadDraw(c.var.db, id));
+});
+
+seasonRoutes.post("/:id/draw", async (c) => {
+  const id = idParam(c);
+  const db = c.var.db;
+  const season = await requireSeason(db, id);
+  const { participantIds, avoidPreviousSeason } = await parseJson(c, drawBody);
+
+  const found = await db
+    .select({ id: people.id, giverOnly: people.giverOnly, archived: people.archived })
+    .from(people)
+    .where(inArray(people.id, participantIds))
+    .all();
+  if (found.length !== participantIds.length) fail(400, "participantIds: person not found");
+  if (found.some((p) => p.giverOnly)) fail(400, "participantIds: giver-only people can't take part");
+  if (found.some((p) => p.archived)) fail(400, "participantIds: archived people can't take part");
+
+  // The most recent earlier season of the same kind that has a draw.
+  let previous: { giverId: number; recipientId: number }[] = [];
+  if (avoidPreviousSeason) {
+    const prev = await db
+      .select({ id: seasons.id })
+      .from(seasons)
+      .innerJoin(exchangeDraws, eq(exchangeDraws.seasonId, seasons.id))
+      .where(and(eq(seasons.kind, season.kind), ne(seasons.id, id), lt(seasons.date, season.date)))
+      .orderBy(desc(seasons.date), desc(seasons.id))
+      .limit(1)
+      .get();
+    if (prev) previous = await loadDraw(db, prev.id);
+  }
+
+  const result = drawNames(participantIds, previous);
+  const now = new Date().toISOString();
+  await db.batch([
+    db.delete(exchangeDraws).where(eq(exchangeDraws.seasonId, id)),
+    db.insert(exchangeDraws).values(result.pairs.map((p) => ({ seasonId: id, ...p, createdAt: now }))),
+  ]);
+  const pairs = [...result.pairs].sort((a, b) => a.giverId - b.giverId);
+  return c.json(result.note ? { pairs, note: result.note } : { pairs });
+});
+
+seasonRoutes.delete("/:id/draw", async (c) => {
+  const id = idParam(c);
+  await requireSeason(c.var.db, id);
+  await c.var.db.delete(exchangeDraws).where(eq(exchangeDraws.seasonId, id));
+  return c.json({ ok: true });
 });

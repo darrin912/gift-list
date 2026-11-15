@@ -1,4 +1,4 @@
-// Typed client for the Phase 1 + Phase 2 API. See docs/API.md (the binding contract).
+// Typed client for the Phase 1, 2 and 3A API. See docs/API.md (the binding contract).
 // Money is always integer cents. Dates are YYYY-MM-DD strings.
 
 export type PersonKind = "parent" | "kid" | "other";
@@ -39,6 +39,8 @@ export interface Season {
   overallBudgetCents: number;
   isActive: boolean;
   archived: boolean;
+  /** Phase 3: who a birthday (required) or anniversary (optional; null = both parents) is for. */
+  honoreeId?: number | null;
 }
 export type SeasonInput = Partial<Omit<Season, "id">>;
 
@@ -71,8 +73,16 @@ export interface Gift {
   updatedBy: number | null;
   createdAt: string;
   updatedAt: string;
+  // Phase 3 price watch (missing on older servers = off / never checked).
+  watchPrice?: boolean;
+  lastSeenPriceCents?: number | null;
+  lowestSeenPriceCents?: number | null;
+  lastCheckedAt?: string | null;
+  priceDroppedAt?: string | null;
 }
-export type GiftInput = Partial<Omit<Gift, "id" | "createdBy" | "updatedBy" | "createdAt" | "updatedAt">>;
+export type GiftInput = Partial<
+  Omit<Gift, "id" | "createdBy" | "updatedBy" | "createdAt" | "updatedAt" | "lastSeenPriceCents" | "lowestSeenPriceCents" | "lastCheckedAt" | "priceDroppedAt">
+>;
 
 export interface GiftFilters {
   /** A season id, or "none" for the ideas inbox. Omit for every season. */
@@ -129,8 +139,9 @@ export type ActivityAction = "created" | "updated" | "deleted";
 
 export interface ActivityEntry {
   id: number;
-  userId: number;
-  userName: string;
+  /** null for system rows (the daily price watch). */
+  userId: number | null;
+  userName: string | null;
   action: ActivityAction;
   summary: string;
   giftId: number | null;
@@ -170,6 +181,57 @@ export interface ImportRequest {
 }
 
 /** URL of the CSV export: one season, or every gift when seasonId is undefined. */
+// ---- Phase 3 (part A) ----
+
+export interface HistorySeason {
+  season: Season;
+  gifts: Gift[];
+}
+
+export interface SimilarGift {
+  giftId: number;
+  title: string;
+  seasonName: string;
+  seasonDate: string | null;
+  status: GiftStatus;
+}
+
+export interface DrawPair {
+  giverId: number;
+  recipientId: number;
+}
+
+export interface DrawResult {
+  pairs: DrawPair[];
+  /** Set when last season's pairing couldn't be avoided. */
+  note?: string;
+}
+
+export interface Passkey {
+  id: number;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export function similarQueryString(opts: { recipientId: number; title: string; excludeId?: number }): string {
+  const p = new URLSearchParams();
+  p.set("recipientId", String(opts.recipientId));
+  p.set("title", opts.title);
+  if (opts.excludeId !== undefined) p.set("excludeId", String(opts.excludeId));
+  return `?${p.toString()}`;
+}
+
+/** POST /seasons/:id/draw returns `{ pairs, note? }`; GET returns a bare array. Accept either. */
+export function toDrawResult(data: unknown): DrawResult {
+  if (Array.isArray(data)) return { pairs: data as DrawPair[] };
+  if (data && typeof data === "object" && Array.isArray((data as DrawResult).pairs)) {
+    const d = data as DrawResult;
+    return d.note ? { pairs: d.pairs, note: d.note } : { pairs: d.pairs };
+  }
+  return { pairs: [] };
+}
+
 export function exportCsvUrl(seasonId?: number): string {
   return `/api/export.csv${seasonId !== undefined ? `?seasonId=${seasonId}` : ""}`;
 }
@@ -219,7 +281,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       data && typeof data === "object" && "error" in data && typeof (data as { error: unknown }).error === "string"
         ? (data as { error: string }).error
         : `Request failed (${res.status})`;
-    if (res.status === 401 && path !== "/auth/login") onUnauthorized?.();
+    if (res.status === 401 && path !== "/auth/login" && !path.startsWith("/auth/passkey/login")) onUnauthorized?.();
     throw new ApiError(res.status, message);
   }
   return data as T;
@@ -258,6 +320,15 @@ export const api = {
     me: () => request<{ user: User }>("GET", "/auth/me").then((r) => r.user),
     changePassword: (currentPassword: string, newPassword: string) =>
       request<{ ok: true }>("POST", "/auth/password", { currentPassword, newPassword }),
+    passkeys: () => request<unknown>("GET", "/auth/passkeys").then((d) => unwrap<Passkey[]>(d, "passkeys")),
+    removePasskey: (id: number) => request<{ ok: true }>("DELETE", `/auth/passkeys/${id}`),
+    /** Options JSON for @simplewebauthn/browser (signed in). */
+    passkeyRegisterOptions: () => request<unknown>("POST", "/auth/passkey/register/options").then((d) => unwrap<unknown>(d, "options")),
+    passkeyRegisterVerify: (response: unknown, name: string) =>
+      request<{ ok: boolean }>("POST", "/auth/passkey/register/verify", { response, name }),
+    passkeyLoginOptions: () => request<unknown>("POST", "/auth/passkey/login/options").then((d) => unwrap<unknown>(d, "options")),
+    passkeyLoginVerify: (response: unknown) =>
+      request<{ user: User }>("POST", "/auth/passkey/login/verify", { response }).then((r) => r.user),
   },
   people: {
     list: (includeArchived = false) =>
@@ -278,6 +349,10 @@ export const api = {
       request<unknown>("GET", `/seasons/${id}/budgets`).then((d) => unwrap<PersonBudget[]>(d, "budgets")),
     setBudget: (id: number, personId: number, body: { budgetCents: number; stockingBudgetCents?: number }) =>
       request<unknown>("PUT", `/seasons/${id}/budgets/${personId}`, body),
+    draw: (id: number) => request<unknown>("GET", `/seasons/${id}/draw`).then(toDrawResult),
+    runDraw: (id: number, body: { participantIds: number[]; avoidPreviousSeason: boolean }) =>
+      request<unknown>("POST", `/seasons/${id}/draw`, body).then(toDrawResult),
+    clearDraw: (id: number) => request<{ ok: true }>("DELETE", `/seasons/${id}/draw`),
   },
   gifts: {
     list: (filters: GiftFilters = {}) =>
@@ -289,7 +364,12 @@ export const api = {
     update: (id: number, input: GiftInput) =>
       request<unknown>("PATCH", `/gifts/${id}`, input).then((d) => unwrap<Gift>(d, "gift")),
     remove: (id: number) => request<unknown>("DELETE", `/gifts/${id}`),
+    similar: (opts: { recipientId: number; title: string; excludeId?: number }) =>
+      request<unknown>("GET", `/gifts/similar${similarQueryString(opts)}`).then((d) => unwrap<SimilarGift[]>(d, "similar")),
+    checkPrice: (id: number) => request<unknown>("POST", `/gifts/${id}/check-price`).then((d) => unwrap<Gift>(d, "gift")),
   },
+  history: (personId: number) =>
+    request<unknown>("GET", `/history?personId=${personId}`).then((d) => unwrap<HistorySeason[]>(d, "history")),
   stores: () => request<unknown>("GET", "/stores").then((d) => unwrap<string[]>(d, "stores")),
   dashboard: (seasonId?: number) =>
     request<Dashboard>("GET", `/dashboard${seasonId !== undefined ? `?seasonId=${seasonId}` : ""}`),

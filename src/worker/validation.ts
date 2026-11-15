@@ -70,6 +70,7 @@ const seasonFields = {
   overallBudgetCents: cents,
   isActive: z.boolean(),
   archived: z.boolean(),
+  honoreeId: id.nullable(),
 };
 
 export const seasonCreate = z.object({
@@ -78,6 +79,7 @@ export const seasonCreate = z.object({
   overallBudgetCents: cents.default(0),
   isActive: z.boolean().default(false),
   archived: z.boolean().default(false),
+  honoreeId: id.nullable().default(null),
 });
 
 export const seasonPatch = z.object(seasonFields).partial();
@@ -106,6 +108,7 @@ const giftFields = {
   orderNumber: text(200),
   trackingUrl: text(2000),
   returnBy: isoDate.nullable(),
+  watchPrice: z.boolean(),
   giverIds: z
     .array(id)
     .max(20)
@@ -128,6 +131,7 @@ export const giftCreate = z.object({
   orderNumber: giftFields.orderNumber.default(""),
   trackingUrl: giftFields.trackingUrl.default(""),
   returnBy: giftFields.returnBy.default(null),
+  watchPrice: giftFields.watchPrice.default(false),
   giverIds: giftFields.giverIds.default([]),
 });
 
@@ -171,4 +175,46 @@ export const importBody = z.object({
   csv: z.string().max(5_000_000, "CSV is too large"),
   seasonId: id.nullable().default(null),
   dryRun: z.boolean().default(false),
+});
+
+// ---------------------------------------------------------------- phase 3
+
+export const historyQuery = z.object({
+  personId: intString,
+});
+
+export const similarQuery = z.object({
+  recipientId: intString,
+  title: z.string().max(200),
+  excludeId: intString.optional(),
+  /** The season being edited (matches in it aren't "given before"); defaults to excludeId's season, else the active one. */
+  seasonId: z.union([z.literal("none"), intString]).optional(),
+});
+
+export const drawBody = z.object({
+  participantIds: z
+    .array(id)
+    .min(2, "at least 2 participants are needed")
+    .max(100)
+    .refine((ids) => new Set(ids).size === ids.length, { message: "participants must be unique" }),
+  avoidPreviousSeason: z.boolean().default(false),
+});
+
+/** The browser's credential JSON is checked by @simplewebauthn/server; only the shape is checked here. */
+const credentialJson = z
+  .object({
+    id: z.string().min(1).max(2048),
+    rawId: z.string().min(1).max(2048),
+    type: z.literal("public-key"),
+    response: z.object({ clientDataJSON: z.string().min(1).max(10_000) }).loose(),
+  })
+  .loose();
+
+export const passkeyRegisterVerifyBody = z.object({
+  response: credentialJson,
+  name: z.string().trim().max(100).nullish(),
+});
+
+export const passkeyLoginVerifyBody = z.object({
+  response: credentialJson,
 });

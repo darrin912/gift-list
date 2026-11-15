@@ -28,5 +28,8 @@
     "run_worker_first": ["/api/*"]
   },
 
+  // Daily price-drop watch (src/worker/price-watch.ts), 13:17 UTC.
+  "triggers": { "crons": ["17 13 * * *"] },
+
   "observability": { "enabled": true }
 }

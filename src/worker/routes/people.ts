@@ -1,6 +1,6 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { giftGivers, gifts, people, users } from "../../db/schema";
+import { exchangeDraws, giftGivers, gifts, people, seasons, users } from "../../db/schema";
 import { fail, idParam, notFound, parseJson } from "../http";
 import { toPerson } from "../serialize";
 import type { AppEnv } from "../types";
@@ -51,11 +51,19 @@ peopleRoutes.delete("/:id", async (c) => {
   if (linked) fail(409, "This person is linked to a login and can't be deleted");
 
   // "Has gifts" = is the recipient of any gift or a giver on any gift.
-  const [asRecipient, asGiver] = await Promise.all([
+  // Also archived (not deleted) when a name draw or a season's honoree refers to them.
+  const [asRecipient, asGiver, inDraw, asHonoree] = await Promise.all([
     db.select({ id: gifts.id }).from(gifts).where(eq(gifts.recipientId, id)).limit(1).get(),
     db.select({ id: giftGivers.giftId }).from(giftGivers).where(eq(giftGivers.personId, id)).limit(1).get(),
+    db
+      .select({ id: exchangeDraws.seasonId })
+      .from(exchangeDraws)
+      .where(or(eq(exchangeDraws.giverId, id), eq(exchangeDraws.recipientId, id)))
+      .limit(1)
+      .get(),
+    db.select({ id: seasons.id }).from(seasons).where(eq(seasons.honoreeId, id)).limit(1).get(),
   ]);
-  const hasGifts = Boolean(asRecipient || asGiver);
+  const hasGifts = Boolean(asRecipient || asGiver || inDraw || asHonoree);
 
   if (hasGifts) {
     await db.update(people).set({ archived: true }).where(eq(people.id, id));

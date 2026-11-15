@@ -2,6 +2,7 @@
 // and the feed, which applies the surprise rule from rules.ts.
 import { and, desc, eq, inArray, lt, type SQL } from "drizzle-orm";
 import { activityLog, gifts, seasons, users, type GiftRow, type GiftStatus } from "../db/schema";
+import { PRICE_WATCH_ACTOR, PRICE_WATCH_USER_NAME } from "./price-watch";
 import { isGiftHidden } from "./rules";
 import type { ApiUser, Variables } from "./types";
 
@@ -33,6 +34,7 @@ const FIELD_LABELS: Partial<Record<keyof GiftRow | "giverIds", string>> = {
   orderNumber: "order number",
   trackingUrl: "tracking",
   returnBy: "return-by date",
+  watchPrice: "price watch",
   giverIds: "from",
   seasonId: "season",
 };
@@ -172,7 +174,7 @@ export async function loadActivity(
       out.push({
         id: log.id,
         userId: log.userId,
-        userName: userName ?? "",
+        userName: log.systemActor === PRICE_WATCH_ACTOR ? PRICE_WATCH_USER_NAME : (userName ?? ""),
         action: ACTION_WORDS[log.action],
         summary: log.summary,
         giftId: log.giftId,

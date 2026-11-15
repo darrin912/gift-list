@@ -75,6 +75,8 @@ export const seasons = sqliteTable("seasons", {
   overallBudgetCents: integer("overall_budget_cents").notNull().default(0),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(false),
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  /** Birthday (required) / anniversary / other (optional): who the season is for. */
+  honoreeId: integer("honoree_person_id").references(() => people.id),
 });
 
 export const personBudgets = sqliteTable(
@@ -114,12 +116,21 @@ export const gifts = sqliteTable(
     orderNumber: text("order_number").notNull().default(""),
     trackingUrl: text("tracking_url").notNull().default(""),
     returnBy: text("return_by"),
+    watchPrice: integer("watch_price", { mode: "boolean" }).notNull().default(false),
+    lastSeenPriceCents: integer("last_seen_price_cents"),
+    lowestSeenPriceCents: integer("lowest_seen_price_cents"),
+    lastCheckedAt: text("last_checked_at"),
+    priceDroppedAt: text("price_dropped_at"),
     createdBy: integer("created_by").references(() => users.id),
     updatedBy: integer("updated_by").references(() => users.id),
     createdAt: text("created_at").notNull().default(nowIso),
     updatedAt: text("updated_at").notNull().default(nowIso),
   },
-  (t) => [index("gifts_season_id_idx").on(t.seasonId), index("gifts_recipient_id_idx").on(t.recipientId)],
+  (t) => [
+    index("gifts_season_id_idx").on(t.seasonId),
+    index("gifts_recipient_id_idx").on(t.recipientId),
+    index("gifts_price_watch_idx").on(t.watchPrice, t.lastCheckedAt),
+  ],
 );
 
 export const giftGivers = sqliteTable(
@@ -145,6 +156,8 @@ export const activityLog = sqliteTable(
     seasonId: integer("season_id"),
     action: text("action", { enum: ACTIVITY_ACTIONS }).notNull(),
     summary: text("summary").notNull(),
+    /** Set for rows written by the system rather than a user, e.g. "price-watch". */
+    systemActor: text("system_actor"),
     at: text("at").notNull().default(nowIso),
   },
   (t) => [index("activity_log_at_idx").on(t.at), index("activity_log_season_id_idx").on(t.seasonId, t.id)],
@@ -157,6 +170,54 @@ export const rateLimitEvents = sqliteTable(
     at: integer("at").notNull(), // epoch ms
   },
   (t) => [index("rate_limit_events_key_at_idx").on(t.key, t.at)],
+);
+
+export const exchangeDraws = sqliteTable(
+  "exchange_draws",
+  {
+    seasonId: integer("season_id")
+      .notNull()
+      .references(() => seasons.id, { onDelete: "cascade" }),
+    giverId: integer("giver_person_id")
+      .notNull()
+      .references(() => people.id),
+    recipientId: integer("recipient_person_id")
+      .notNull()
+      .references(() => people.id),
+    createdAt: text("created_at").notNull().default(nowIso),
+  },
+  (t) => [primaryKey({ columns: [t.seasonId, t.giverId] }), index("exchange_draws_recipient_idx").on(t.recipientId)],
+);
+
+export const passkeys = sqliteTable(
+  "passkeys",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    credentialId: text("credential_id").notNull().unique(), // base64url
+    publicKey: text("public_key").notNull(), // base64url COSE key
+    counter: integer("counter").notNull().default(0),
+    transports: text("transports", { mode: "json" }).$type<string[]>().notNull().default([]),
+    name: text("name").notNull().default(""),
+    createdAt: text("created_at").notNull().default(nowIso),
+    lastUsedAt: text("last_used_at"),
+  },
+  (t) => [index("passkeys_user_id_idx").on(t.userId)],
+);
+
+export const WEBAUTHN_CHALLENGE_KINDS = ["register", "login"] as const;
+
+export const webauthnChallenges = sqliteTable(
+  "webauthn_challenges",
+  {
+    challenge: text("challenge").primaryKey(),
+    kind: text("kind", { enum: WEBAUTHN_CHALLENGE_KINDS }).notNull(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: integer("expires_at").notNull(), // epoch ms
+  },
+  (t) => [index("webauthn_challenges_expires_idx").on(t.expiresAt)],
 );
 
 export type PersonRow = typeof people.$inferSelect;
