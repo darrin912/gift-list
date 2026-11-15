@@ -40,7 +40,7 @@ export default function DashboardPage() {
       {dash.isLoading && <Loading />}
       <ErrorNote error={dash.error} />
       {dash.data && (
-        <div className="grid gap-5 md:grid-cols-[1.15fr_1fr] md:items-start">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] md:items-start">
           <div className="min-w-0 space-y-5">
             <PotCard d={dash.data} />
             <Attention d={dash.data} map={map} />
@@ -176,7 +176,7 @@ function PeopleCards({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
   return (
     <section aria-labelledby="people-h">
       <h2 id="people-h" className="mb-3 text-[19px] font-bold">People</h2>
-      <ul className="grid gap-3">
+      <ul className="grid grid-cols-1 gap-3">
         {rows.map((r) => (
           <li key={r.personId}>
             <PersonCard r={r} person={map.get(r.personId)!} />

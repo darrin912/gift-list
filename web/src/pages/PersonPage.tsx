@@ -50,7 +50,7 @@ export default function PersonPage() {
         </Link>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-[1fr_1.4fr] md:items-start">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] md:items-start">
         <div className="space-y-5">
           {season && !isMe && !giverOnly && <BudgetCard personId={p.id} seasonId={season.id} seasonName={season.name} spent={spent} committed={committed} />}
 
@@ -110,7 +110,7 @@ export default function PersonPage() {
                       <span className="h-2 w-2 rounded-full" style={{ background: statusVar(s) }} />
                       {STATUS_LABEL[s]} <span className="tnum text-muted">{group.length}</span>
                     </h3>
-                    <ul className="grid gap-3">
+                    <ul className="grid grid-cols-1 gap-3">
                       {group.map((g) => (
                         <li key={g.id}>
                           <GiftCard gift={g} map={map} showRecipient={giverOnly} />

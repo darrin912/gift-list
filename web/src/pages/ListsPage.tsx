@@ -27,7 +27,7 @@ export default function ListsPage() {
   return (
     <>
       <PageHeader title="Lists" sub={season ? `Christmas helpers for ${season.name}` : "Christmas helpers"} />
-      <ul className="grid gap-3 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Tile to="/lists/shopping" icon={IconCart} tone="var(--st-planned)" title="Shopping list" body="Planned gifts, grouped by store." stat={ready ? (toBuy ? `${toBuy} to buy` : "All bought") : null} />
         <Tile
           to="/lists/wrapping"

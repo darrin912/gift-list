@@ -45,7 +45,7 @@ export default function WrappingPage() {
       ) : gifts.error ? (
         <ErrorNote error={gifts.error} />
       ) : (
-        <div className="grid gap-5 md:grid-cols-2 md:items-start">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:items-start">
           <div className="space-y-5 md:col-span-2">
             <div className="card grid grid-cols-2 divide-x divide-line">
               <Progress label="Wrapped" done={p.wrapped + p.given} of={p.here} color="var(--st-wrapped)" />
