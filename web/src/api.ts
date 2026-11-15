@@ -1,4 +1,4 @@
-// Typed client for the Phase 1 API. See docs/API.md (the binding contract).
+// Typed client for the Phase 1 + Phase 2 API. See docs/API.md (the binding contract).
 // Money is always integer cents. Dates are YYYY-MM-DD strings.
 
 export type PersonKind = "parent" | "kid" | "other";
@@ -26,6 +26,8 @@ export interface Person {
   notes: string | null;
   sortOrder: number;
   archived: boolean;
+  /** A label like Santa: can be a giver ("From") but never a recipient. Missing = false. */
+  giverOnly?: boolean;
 }
 export type PersonInput = Partial<Omit<Person, "id">>;
 
@@ -94,6 +96,9 @@ export interface DashboardPerson {
   giftCount: number;
   stockingCount: number;
   countsByStatus: Partial<Record<GiftStatus, number>>;
+  /** Phase 2: same money rules, stocking gifts only (0 when hidden). Treat missing as 0. */
+  stockingSpentCents?: number;
+  stockingCommittedCents?: number;
 }
 
 export interface Dashboard {
@@ -112,6 +117,65 @@ export interface Dashboard {
     orderedNotReceived: { giftId: number; title: string; recipientId: number; store: string | null }[];
     receivedNotWrapped: { giftId: number; title: string; recipientId: number }[];
   };
+}
+
+// ---- Phase 2 ----
+
+export type ActivityAction = "created" | "updated" | "deleted";
+
+export interface ActivityEntry {
+  id: number;
+  userId: number;
+  userName: string;
+  action: ActivityAction;
+  summary: string;
+  giftId: number | null;
+  recipientId: number | null;
+  seasonId: number | null;
+  /** ISO timestamp. */
+  at: string;
+}
+
+export interface LinkPreview {
+  title: string;
+  imageUrl: string;
+  priceCents: number | null;
+  store: string;
+  /** Present (true) when the remote site refused the request (403/503/captcha). */
+  blocked?: boolean;
+}
+
+export interface ImportRow {
+  line: number;
+  ok: boolean;
+  error?: string;
+  title?: string;
+  recipient?: string;
+}
+
+export interface ImportResult {
+  created: number;
+  rows: ImportRow[];
+}
+
+export interface ImportRequest {
+  csv: string;
+  /** A season id, or null for the ideas inbox. */
+  seasonId: number | null;
+  dryRun: boolean;
+}
+
+/** URL of the CSV export: one season, or every gift when seasonId is undefined. */
+export function exportCsvUrl(seasonId?: number): string {
+  return `/api/export.csv${seasonId !== undefined ? `?seasonId=${seasonId}` : ""}`;
+}
+
+export function activityQueryString(opts: { limit?: number; seasonId?: number }): string {
+  const p = new URLSearchParams();
+  if (opts.limit !== undefined) p.set("limit", String(opts.limit));
+  if (opts.seasonId !== undefined) p.set("seasonId", String(opts.seasonId));
+  const s = p.toString();
+  return s ? `?${s}` : "";
 }
 
 export class ApiError extends Error {
@@ -225,4 +289,8 @@ export const api = {
   stores: () => request<unknown>("GET", "/stores").then((d) => unwrap<string[]>(d, "stores")),
   dashboard: (seasonId?: number) =>
     request<Dashboard>("GET", `/dashboard${seasonId !== undefined ? `?seasonId=${seasonId}` : ""}`),
+  activity: (opts: { limit?: number; seasonId?: number } = {}) =>
+    request<unknown>("GET", `/activity${activityQueryString(opts)}`).then((d) => unwrap<ActivityEntry[]>(d, "activity")),
+  linkPreview: (url: string) => request<LinkPreview>("POST", "/link-preview", { url }),
+  importCsv: (body: ImportRequest) => request<ImportResult>("POST", "/import", body),
 };

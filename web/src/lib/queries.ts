@@ -10,6 +10,7 @@ export const qk = {
   gift: (id: number) => ["gift", id] as const,
   stores: ["stores"] as const,
   dashboard: (seasonId: number | undefined) => ["dashboard", seasonId ?? "active"] as const,
+  activity: (limit: number, seasonId: number | undefined) => ["activity", limit, seasonId ?? "all"] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: qk.me, queryFn: api.auth.me, staleTime: 5 * 60_000 });
@@ -23,6 +24,9 @@ export const useGifts = (f: GiftFilters, enabled = true) =>
 export const useStores = () => useQuery({ queryKey: qk.stores, queryFn: api.stores, staleTime: 60_000 });
 export const useDashboard = (seasonId: number | undefined, enabled = true) =>
   useQuery({ queryKey: qk.dashboard(seasonId), queryFn: () => api.dashboard(seasonId), enabled });
+
+export const useActivity = (limit: number, seasonId?: number) =>
+  useQuery({ queryKey: qk.activity(limit, seasonId), queryFn: () => api.activity({ limit, seasonId }) });
 
 /** Map of person id → person (includes archived so old gifts still show a name). */
 export function usePeopleMap() {
@@ -40,6 +44,7 @@ export function useInvalidateGifts() {
     qc.invalidateQueries({ queryKey: ["gift"] });
     qc.invalidateQueries({ queryKey: ["dashboard"] });
     qc.invalidateQueries({ queryKey: qk.stores });
+    qc.invalidateQueries({ queryKey: ["activity"] });
   };
 }
 

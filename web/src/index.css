@@ -32,8 +32,9 @@
   --st-returned: #6d6d6d;
 }
 
+/* Dark: follows the OS unless a theme is picked (data-theme on <html>, see lib/theme.ts). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     color-scheme: dark;
     --bg: #0d1613;
     --surface: #15211c;
@@ -59,6 +60,60 @@
     --st-given: #6cc79e;
     --st-returned: #8d8d8d;
   }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0d1613;
+    --surface: #15211c;
+    --surface-2: #1d2c26;
+    --ink: #e5eee8;
+    --muted: #94a79d;
+    --line: #2a3c34;
+    --pine: #6cc79e;
+    --pine-ink: #0d1613;
+    --pine-soft: #1c3a2d;
+    --berry: #f07d8f;
+    --berry-soft: #3f1d24;
+    --gold: #e5ba5c;
+    --gold-soft: #3a2f15;
+    --band: #12241c;
+    --band-ink: #e5eee8;
+
+    --st-idea: #7f8d85;
+    --st-planned: #e0b04a;
+    --st-ordered: #6aa4e0;
+    --st-received: #a98ae0;
+    --st-wrapped: #f07d8f;
+    --st-given: #6cc79e;
+    --st-returned: #8d8d8d;
+}
+
+/* Holiday: candlelit cream, cranberry band, evergreen buttons, a touch of gold. */
+:root[data-theme="holiday"] {
+  color-scheme: light;
+  --bg: #f8f1e6;
+  --surface: #fffcf6;
+  --surface-2: #f1e6d5;
+  --ink: #2b1714;
+  --muted: #74574e;
+  --line: #e6d4bf;
+  --pine: #1b5a3c;
+  --pine-ink: #fffcf6;
+  --pine-soft: #dceadd;
+  --berry: #a51d34;
+  --berry-soft: #f7e0e0;
+  --gold: #946609;
+  --gold-soft: #f6e7c4;
+  --band: #8a1a2b;
+  --band-ink: #fdf1e1;
+
+  --st-idea: #94857a;
+  --st-planned: #b8861c;
+  --st-ordered: #3a6ea5;
+  --st-received: #7a4fa8;
+  --st-wrapped: #a51d34;
+  --st-given: #1b5a3c;
+  --st-returned: #6d6d6d;
 }
 
 html {
@@ -152,6 +207,14 @@ body {
     radial-gradient(circle at 70% 60%, color-mix(in srgb, var(--band-ink) 22%, transparent) 1px, transparent 1.4px),
     radial-gradient(circle at 45% 85%, color-mix(in srgb, var(--band-ink) 15%, transparent) 1px, transparent 1.4px);
   background-size: 46px 38px, 61px 47px, 37px 53px;
+}
+/* Holiday: gold flecks in the snow and a thin ribbon trim under the header. */
+:root[data-theme="holiday"] .snowfall {
+  background-image:
+    radial-gradient(circle at 20% 30%, color-mix(in srgb, #f3c969 55%, transparent) 1.2px, transparent 1.7px),
+    radial-gradient(circle at 70% 60%, color-mix(in srgb, var(--band-ink) 28%, transparent) 1px, transparent 1.4px),
+    radial-gradient(circle at 45% 85%, color-mix(in srgb, #f3c969 30%, transparent) 1px, transparent 1.4px);
+  box-shadow: inset 0 -3px 0 #d9a93c;
 }
 
 .pb-safe {

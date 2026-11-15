@@ -145,7 +145,16 @@ export const activityLog = sqliteTable(
     summary: text("summary").notNull(),
     at: text("at").notNull().default(nowIso),
   },
-  (t) => [index("activity_log_at_idx").on(t.at)],
+  (t) => [index("activity_log_at_idx").on(t.at), index("activity_log_season_id_idx").on(t.seasonId, t.id)],
+);
+
+export const rateLimitEvents = sqliteTable(
+  "rate_limit_events",
+  {
+    key: text("key").notNull(), // e.g. "link-preview:<userId>"
+    at: integer("at").notNull(), // epoch ms
+  },
+  (t) => [index("rate_limit_events_key_at_idx").on(t.key, t.at)],
 );
 
 export type PersonRow = typeof people.$inferSelect;
