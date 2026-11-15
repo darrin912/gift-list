@@ -16,7 +16,7 @@
       "database_name": "gift-list",
       // Create with `npx wrangler d1 create gift-list` and paste the real ID here.
       // Local dev (`wrangler dev`, `--local` migrations) works with the placeholder.
-      "database_id": "REPLACE_WITH_D1_ID",
+      "database_id": "65781c90-2b76-44e7-84af-7107d8088dc2",
       "migrations_dir": "migrations"
     }
   ],
