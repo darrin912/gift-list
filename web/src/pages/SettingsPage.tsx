@@ -386,7 +386,8 @@ function Theme() {
 
 function ExportCsv() {
   const { season } = useSeason();
-  const [scope, setScope] = useState<"season" | "all">(season ? "season" : "all");
+  const [picked, setScope] = useState<"season" | "all" | null>(null);
+  const scope = picked ?? (season ? "season" : "all");
   const href = exportCsvUrl(scope === "season" && season ? season.id : undefined);
   return (
     <Section id="export" title="Export to CSV" sub="A spreadsheet of your gifts. Surprises for you are left out.">
@@ -423,9 +424,10 @@ function ImportCsv() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [csv, setCsv] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
-  const [target, setTarget] = useState<string>(season ? String(season.id) : "inbox");
+  const [pickedTarget, setTarget] = useState<string | null>(null);
+  const target = pickedTarget ?? (season && !season.archived ? String(season.id) : "inbox");
   const [preview, setPreview] = useState<ImportResult | null>(null);
-  const [done, setDone] = useState<number | null>(null);
+  const [done, setDone] = useState<ImportResult | null>(null);
   const [readErr, setReadErr] = useState<string | null>(null);
 
   const reset = () => {
@@ -439,7 +441,7 @@ function ImportCsv() {
   const run = useMutation({
     mutationFn: () => api.importCsv({ csv, seasonId: parseImportTarget(target), dryRun: false }),
     onSuccess: (r) => {
-      setDone(r.created);
+      setDone(r);
       setPreview(null);
       setCsv("");
       setFileName(null);
@@ -522,10 +524,18 @@ function ImportCsv() {
         </div>
         {readErr && <p className="text-[14px] font-medium text-berry">{readErr}</p>}
         <ErrorNote error={dry.error || run.error} />
-        {done !== null && (
-          <p role="status" className="rounded-xl bg-pine-soft px-4 py-3 text-[15px] font-medium text-pine">
-            Imported {plural(done, "gift")} into {targetName}.
-          </p>
+        {done && (
+          <div role="status" className="space-y-2">
+            <p className="rounded-xl bg-pine-soft px-4 py-3 text-[15px] font-medium text-pine">
+              Imported {plural(done.created, "gift")} into {targetName}.
+            </p>
+            {done.rows.some((r) => !r.ok) && (
+              <>
+                <p className="text-[14px] font-semibold text-berry">Skipped {plural(done.rows.filter((r) => !r.ok).length, "row")}:</p>
+                <ImportPreviewTable result={{ created: done.created, rows: done.rows.filter((r) => !r.ok) }} />
+              </>
+            )}
+          </div>
         )}
         {!preview ? (
           <button type="button" className="btn-primary w-full" disabled={!csv.trim() || dry.isPending} onClick={() => dry.mutate()}>

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import type { ActivityEntry, Person } from "../api";
+import type { ActivityEntry } from "../api";
 import { timeAgo } from "../lib/activity";
 
 const ACTION_COLOR: Record<ActivityEntry["action"], string> = {
@@ -9,8 +9,7 @@ const ACTION_COLOR: Record<ActivityEntry["action"], string> = {
 };
 
 /** One row of the activity feed: who, what, when. Links to the gift when it still exists. */
-export function ActivityRow({ e, map, compact = false }: { e: ActivityEntry; map: Map<number, Person>; compact?: boolean }) {
-  const recipient = e.recipientId !== null ? map.get(e.recipientId) : undefined;
+export function ActivityRow({ e, compact = false }: { e: ActivityEntry; compact?: boolean }) {
   const body = (
     <>
       <span
@@ -24,7 +23,6 @@ export function ActivityRow({ e, map, compact = false }: { e: ActivityEntry; map
           {e.userName}
           {" · "}
           <time dateTime={e.at}>{timeAgo(e.at)}</time>
-          {recipient && !compact ? ` · for ${recipient.name}` : ""}
         </span>
       </span>
     </>

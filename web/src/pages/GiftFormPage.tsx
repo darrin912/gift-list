@@ -112,8 +112,10 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
       setF(next);
       if (filled.includes("imageUrl")) setImgOk(true);
       const names: Record<string, string> = { title: "title", imageUrl: "image", est: "price", store: "store" };
-      if (filled.length) setPreview({ kind: "ok", text: `Filled in the ${filled.map((k) => names[k]).join(", ")}. Check it looks right.` });
-      else if (p.blocked) setPreview({ kind: "blocked", text: "This store didn't let us peek at the page. Fill in the details by hand." });
+      const list = filled.map((k) => names[k]).join(", ");
+      if (p.blocked)
+        setPreview({ kind: "blocked", text: `This store didn't let us peek at the page${filled.length ? ` (we filled in the ${list})` : ""}. Fill in the rest by hand.` });
+      else if (filled.length) setPreview({ kind: "ok", text: `Filled in the ${list}. Check it looks right.` });
       else setPreview({ kind: "empty", text: "Nothing new to fill in from that page." });
     },
     onError: (e) => setPreview({ kind: "error", text: e instanceof ApiError && e.status === 400 ? "That link can't be previewed." : e instanceof ApiError && e.status === 429 ? "Too many previews in a minute. Try again shortly." : "Couldn't reach that page right now." }),

@@ -42,8 +42,8 @@ function Wordmark() {
         <path d="M6 9h20l-2 6H8z" fill="none" />
         <path d="M5 12h22v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z" fill="currentColor" opacity=".22" />
         <rect x="4" y="9" width="24" height="5" rx="1.5" fill="currentColor" />
-        <rect x="14.5" y="9" width="3" height="19" fill="var(--berry)" />
-        <path d="M16 9c-1.5-4-6.5-5.5-6.5-2.5 0 2 4 2.5 6.5 2.5Zm0 0c1.5-4 6.5-5.5 6.5-2.5 0 2-4 2.5-6.5 2.5Z" fill="none" stroke="var(--berry)" strokeWidth="2" strokeLinejoin="round" />
+        <rect x="14.5" y="9" width="3" height="19" fill="var(--ribbon, var(--berry))" />
+        <path d="M16 9c-1.5-4-6.5-5.5-6.5-2.5 0 2 4 2.5 6.5 2.5Zm0 0c1.5-4 6.5-5.5 6.5-2.5 0 2-4 2.5-6.5 2.5Z" fill="none" stroke="var(--ribbon, var(--berry))" strokeWidth="2" strokeLinejoin="round" />
       </svg>
       <span className="text-[20px] font-extrabold tracking-[-0.02em] [font-stretch:90%]">Gift List</span>
     </NavLink>

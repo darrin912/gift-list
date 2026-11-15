@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { dayLabel, groupByDay } from "../lib/activity";
-import { useActivity, usePeopleMap } from "../lib/queries";
+import { useActivity } from "../lib/queries";
 import { useSeason } from "../lib/season";
 import { ActivityRow } from "../components/Activity";
 import { EmptyState, ErrorNote, Loading } from "../components/ui";
@@ -10,7 +10,6 @@ export default function ActivityPage() {
   const { seasonId, season } = useSeason();
   const [onlySeason, setOnlySeason] = useState(false);
   const activity = useActivity(100, onlySeason ? seasonId : undefined);
-  const map = usePeopleMap();
   const days = groupByDay(activity.data ?? []);
 
   return (
@@ -47,7 +46,7 @@ export default function ActivityPage() {
               <h2 className="mb-2 text-[15px] font-semibold text-muted">{dayLabel(d.day)}</h2>
               <ul className="card divide-y divide-line overflow-hidden py-1">
                 {d.entries.map((e) => (
-                  <ActivityRow key={e.id} e={e} map={map} />
+                  <ActivityRow key={e.id} e={e} />
                 ))}
               </ul>
             </section>

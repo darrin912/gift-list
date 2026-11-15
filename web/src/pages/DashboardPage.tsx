@@ -44,7 +44,7 @@ export default function DashboardPage() {
           <div className="min-w-0 space-y-5">
             <PotCard d={dash.data} />
             <Attention d={dash.data} map={map} />
-            <RecentActivity map={map} />
+            <RecentActivity />
           </div>
           <div className="min-w-0 space-y-5">
             {kids.length === 0 ? <AddPeoplePrompt /> : <Fairness d={dash.data} map={map} />}
@@ -329,7 +329,7 @@ function StockingLine({ r }: { r: DashboardPerson }) {
   );
 }
 
-function RecentActivity({ map }: { map: Map<number, Person> }) {
+function RecentActivity() {
   const activity = useActivity(5);
   const list = activity.data ?? [];
   return (
@@ -347,7 +347,7 @@ function RecentActivity({ map }: { map: Map<number, Person> }) {
       ) : (
         <ul className="pb-2">
           {list.slice(0, 5).map((e) => (
-            <ActivityRow key={e.id} e={e} map={map} compact />
+            <ActivityRow key={e.id} e={e} compact />
           ))}
         </ul>
       )}
