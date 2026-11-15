@@ -10,7 +10,7 @@ Status: **planning**. No code has been written yet.
 
 | Goal | What it means in the app |
 |---|---|
-| Shared list | We both log in, see the same data live, and either of us can add or edit. |
+| Shared list | We both sign in (through Cloudflare Access), see the same data live, and either of us can add or edit. |
 | What we want to get vs. what we got | Every gift has a status, from *Idea* through *Given*. |
 | Budgets | Each recipient has a budget, the season has an overall budget, and the app shows spent and remaining for both. |
 | Where we bought it | Store, link, price paid, order number, and return-by date on each gift. |
@@ -33,8 +33,8 @@ Season ─┬─< PersonBudget >── Person ──(optional)── User (login
 
 ### Tables
 
-**users**: the two logins.
-`id, email, display_name, password_hash, person_id (links to the matching Person), created_at`
+**users**: the two of us, identified by the email Cloudflare Access verifies.
+`id, email, display_name, person_id (links to the matching Person), created_at`
 
 **people**: everyone who gives or receives, including the two of us. Kids don't need logins.
 `id, name, kind (parent | kid | other), color, emoji, birthday, sizes (JSON: shirt, pants, shoe…), interests, notes, sort_order, archived`
@@ -93,40 +93,46 @@ Mobile-first. Most use will be on a phone in a store or on the couch. Add "Add t
 
 ---
 
-## 4. Tech stack (chosen for the easiest Hostinger deploy)
+## 4. Tech stack (Cloudflare: Workers + D1)
+
+Everything runs on Cloudflare, where `nielsonlife.com` DNS already lives. That means one account, no servers, and no DNS or SSL setup by hand.
 
 | Layer | Choice | Why |
 |---|---|---|
-| Runtime | **Node.js 20/22 LTS** | Hostinger's "Node.js web app" deploys straight from GitHub and rebuilds on every push. |
-| Server | **Express** (one app serves the API and the built frontend) | It's one process, one deploy, and Hostinger auto-detects it. |
-| Frontend | **React + Vite** (or Preact for something lighter), with Tailwind for styling | Fast to build, responsive by default. |
-| Database | **MySQL** (included in the Hostinger plan) | According to Hostinger's guides, MySQL is the only database engine on these plans. Using it also avoids the question of whether a SQLite file survives redeploys. |
-| ORM / migrations | **Drizzle ORM** (or Prisma) | Typed queries; migrations live in the repo. |
-| Auth | Email + password for exactly two users, an httpOnly session cookie, and bcrypt hashes. The two accounts are seeded from env vars on first boot. No sign-up page. | Simplest option with no third-party dependency. |
-| Optional extra lock | **Cloudflare Access** (Zero Trust free tier) in front of the subdomain, using a one-time code by email | A second gate that needs no extra code. See §6. |
+| Runtime | **Cloudflare Workers** (JavaScript/TypeScript, with Node compatibility turned on) | Free plan and no server to manage. It also doesn't sleep the way Hostinger's Node apps do. |
+| API framework | **Hono** | An Express-style router built for Workers. Express itself doesn't run well on Workers. |
+| Frontend | **React + Vite** (or Preact), with Tailwind | Built to static files and served by the same Worker through **Workers Static Assets**. |
+| Database | **Cloudflare D1** (SQLite) | Built in, free tier, point-in-time restore ("Time Travel"). Two people will use a tiny fraction of the free limits. |
+| ORM / migrations | **Drizzle ORM** (supports D1), plus `wrangler d1 migrations` | Typed queries; migrations live in the repo. |
+| Auth | **Cloudflare Access** (Zero Trust, free for up to 50 users) with a policy that allows only our two email addresses | No login code or password storage in the app. Cloudflare shows a one-time-code login, and the Worker reads the verified email from the Access JWT (`Cf-Access-Jwt-Assertion`) to know who's signed in. That's how the surprise rule knows who's looking. |
+| Photos (Phase 3) | **R2** | For receipt photos and images, if we ever want them. |
 
 Repo layout (planned):
 ```
-/server      Express app, API routes, auth, db schema & migrations
-/web         React (Vite) app; builds to /web/dist, served by Express
-/docs        This plan + feature ideas
-package.json root scripts: build, start, migrate, seed
+/src/worker   Hono API, Access JWT check, Drizzle schema
+/migrations   D1 SQL migrations
+/web          React (Vite) app → built to /web/dist (served as static assets)
+wrangler.jsonc  Worker config: D1 binding, assets dir, custom domain route
+/docs         This plan + feature ideas
 ```
 
 **API sketch:**
-`POST /api/login`, `POST /api/logout`, `GET /api/me`,
+`GET /api/me` (from the Access identity),
 `GET/POST/PATCH/DELETE /api/people`, `/api/seasons`, `/api/budgets`, `/api/gifts`,
 `GET /api/dashboard?season=2026` (all totals computed server-side, with the surprise rule applied),
 `GET /api/export.csv`.
 
-**Fallback if the Hostinger plan has no Node.js support:** the same app as **PHP + MySQL** (for example Laravel, or plain PHP with a small Alpine.js frontend). Every Hostinger plan runs PHP, and hPanel's Git deploy pulls from GitHub. Section 6 explains how to check.
+**Trade-offs vs. Hostinger + Node/MySQL**
+- **Pros:** DNS and SSL are automatic because the zone is already on Cloudflare. It's free. Branches get preview URLs. There are no cold-start sleeps. Login is handled for us.
+- **Cons:** Workers are not full Node.js, so a few npm packages (anything with native code) won't run. The free plan's CPU time per request is small, which is fine for simple CRUD. The database is SQLite instead of MySQL, which makes no practical difference at our size.
+- **Fallback:** Hostinger Business/Cloud running Node + MySQL, or PHP + MySQL on any Hostinger plan. The schema carries over almost unchanged.
 
 ---
 
 ## 5. Build phases
 
 **Phase 1: MVP, to use this Christmas**
-- Login for two users, people, a season with budgets, and gift CRUD with status, store, price, and givers
+- Access-protected app, people, a season with budgets, and gift CRUD with status, store, price, and givers
 - Dashboard with overall and per-person budget bars
 - Surprise rule
 - Mobile layout
@@ -136,7 +142,7 @@ package.json root scripts: build, start, migrate, seed
 - Shopping-list-by-store, wrapping, and Christmas Eve views
 - Fairness strip, Givers view
 - Ideas inbox, activity feed ("Darrin added 2 gifts")
-- Paste a link to auto-fill the title, image, and price (server-side Open Graph fetch)
+- Paste a link to auto-fill the title, image, and price (the Worker fetches the page's Open Graph tags)
 - CSV export and import (bring in an existing spreadsheet)
 - PWA install
 
@@ -144,50 +150,41 @@ package.json root scripts: build, start, migrate, seed
 
 ---
 
-## 6. Deployment plan (Hostinger + GitHub + Cloudflare)
+## 6. Deployment plan (Cloudflare + GitHub)
 
 Target URL: `https://gifts.nielsonlife.com` (placeholder subdomain; any name works).
 
 ### One-time setup
-1. **Check the Hostinger plan.** In hPanel, look for **Websites → Add Website → Node.js web app**. According to Hostinger's pricing pages, Node.js apps need **Business** web hosting (up to 5 Node apps) or a **Cloud** plan. If that option is missing, either upgrade or use the PHP fallback.
-2. **GitHub.** The code lives in `darrin912/gift-list` (private). Production deploys from the `main` branch.
-3. **Create the app in hPanel.** Go to *Add Website → Node.js web app → Import Git repository*, install the **Hostinger GitHub App** when prompted, and choose `darrin912/gift-list` and the `main` branch. Hostinger auto-detects the settings; confirm them:
-   - Node version: 22 (or 20)
+1. **GitHub.** The code lives in `darrin912/gift-list` (private). Production deploys from the `main` branch.
+2. **Create the D1 database.** Use the Cloudflare dashboard (*Storage & Databases → D1 → Create*, named `gift-list`) or run `npx wrangler d1 create gift-list`. Put its ID in `wrangler.jsonc`. An ID isn't a secret, so it's safe to commit.
+3. **Connect the repo with Workers Builds.** In the dashboard, go to *Workers & Pages → Create → Import a repository* and pick `darrin912/gift-list`.
    - Build command: `npm ci && npm run build`
-   - Entry file / start: `server/dist/index.js` (or `npm start`)
-4. **Create a MySQL database** in hPanel (*Databases → MySQL*) and note its host, database name, user, and password.
-5. **Set environment variables** in the Node.js app settings, then restart the app so it reads them:
-   ```
-   DATABASE_URL=mysql://USER:PASS@HOST:3306/DBNAME
-   SESSION_SECRET=<long random string>
-   USER1_EMAIL=…   USER1_PASSWORD=…   (used only for first-boot seeding)
-   USER2_EMAIL=…   USER2_PASSWORD=…
-   NODE_ENV=production
-   ```
-   The app runs its migrations automatically on start.
-6. **Attach the subdomain in hPanel.** In the app's domain settings, add `gifts.nielsonlife.com`. hPanel then shows the IP address (or CNAME target) to point DNS at.
-7. **Add the DNS record in Cloudflare.** In the `nielsonlife.com` zone, go to **DNS → Add record**:
-   - Type **A**, name `gifts`, value = the Hostinger IP from step 6 (use a CNAME instead if hPanel gives a hostname)
-   - Proxy status **DNS only (grey cloud)** for now, so Hostinger can issue the free SSL certificate
-8. **SSL.** Once the certificate shows active in hPanel, you can switch the Cloudflare record to **Proxied (orange)**. If you do, set Cloudflare *SSL/TLS mode = Full (strict)* to avoid redirect loops. Staying grey-cloud is also fine.
-9. **Optional: Cloudflare Access.** This needs the orange cloud. Go to *Zero Trust → Access → Applications → Self-hosted*, enter `gifts.nielsonlife.com`, and add a policy that allows only our two email addresses. Anyone else gets a Cloudflare login wall before they ever reach the app.
+   - Deploy command: `npx wrangler d1 migrations apply gift-list --remote && npx wrangler deploy`
+   - Production branch: `main`. Other branches get preview URLs.
+4. **Custom domain.** In the Worker, go to *Settings → Domains & Routes → Add → Custom domain* and enter `gifts.nielsonlife.com`. Because the zone is already in this Cloudflare account, the DNS record and certificate are created automatically. There are no A records or IPs to manage.
+5. **Lock it down with Access.** Go to *Zero Trust → Access → Applications → Add → Self-hosted*, enter `gifts.nielsonlife.com`, and add a policy that allows two emails: ours. Also protect the `*.workers.dev` URL, or turn it off, so the app can't be reached around Access. Turn preview URLs off too, or protect them the same way.
+6. **App config** (set as Worker variables, not secrets):
+   - `ACCESS_TEAM_DOMAIN` (e.g. `nielsonlife.cloudflareaccess.com`)
+   - `ACCESS_AUD`: the Access application's audience tag, which the Worker uses to verify the JWT
+   - `USER_MAP`: maps each email to a person, so the app knows who's signed in and which gifts to hide
 
 ### Day-to-day
-- `git push` to `main` → Hostinger rebuilds and redeploys automatically.
-- Do feature work on branches and merge to `main` when ready.
+- `git push` to `main` → Workers Builds runs migrations, builds, and deploys.
+- Feature branches get their own preview URL, which is handy for trying changes before merging.
+- Local dev: `npx wrangler dev` runs the Worker and a local D1.
 
 ### Things to know
-- **Cold starts.** Hostinger stops idle Node.js apps and starts them again on the next request, so the first page load after a quiet period is a few seconds slower. That's fine for two users.
-- **Backups.** Hostinger's daily backups include the MySQL database. The app will also have a "Download CSV" button for our own copy.
-- **Secrets** stay in hPanel env vars and are never committed to the repo.
-- **Verify before relying on these steps.** They come from Hostinger docs and support articles as summarized in search results. `docs.hostinger.com` was blocked from this research session, and the Hostinger connector failed to connect, so I couldn't check the docs or the actual account. Confirm the menu names and plan details in hPanel.
+- **Cost: $0.** On the Workers Free plan, Cloudflare enforces D1's daily row read and write limits (since Sept 1, 2026). Two people tracking a few dozen gifts will be nowhere near them. If we ever hit them, the Workers Paid plan ($5/month) removes them.
+- **Backups.** D1 Time Travel can restore the database to an earlier point in time. The CSV export button gives us our own copy. A scheduled Worker that emails or stores a nightly export is a Phase 3 option.
+- **No secrets in the repo.** With Access doing auth, there are no passwords or session secrets to store at all.
+- **Hostinger isn't needed for this app.** It stays available as a fallback.
 
 ---
 
 ## 7. Open questions for us
 
 1. Subdomain name: `gifts.`, `christmas.`, `santa.`?
-2. Which Hostinger plan is it? Does hPanel show the Node.js web app option? If not, choose between upgrading and the PHP fallback.
+2. Which two email addresses should Cloudflare Access allow?
 3. Kids' names and ages, so the seed data and colors can be set up.
 4. Should the kids ever see anything, such as a read-only "my wishlist" page? Not in v1 is the suggestion.
 5. Does "from Mom & Dad" count against one shared parent pot, or should spending be split between us?
