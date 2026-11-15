@@ -89,3 +89,37 @@ A gift is **hidden** from the signed-in user when `gift.recipientId === user.per
 - On the dashboard, the user's own person entry has `hidden: true` and zeros for every number. All `totals`, `fairness`, and `attention` values leave out hidden gifts.
 - `/stores` is unaffected, since it reveals nothing about specific gifts.
 - Creating a gift for yourself is allowed (it becomes hidden right away).
+
+---
+
+# Phase 2 additions
+
+The Phase 1 rules still apply: cents, `{ error }` errors, the session cookie, and the **surprise rule on every route**.
+
+## Activity feed
+`GET /activity?limit=30&seasonId=` → `[{ id, userId, userName, action: "created"|"updated"|"deleted", summary, giftId|null, recipientId|null, seasonId|null, at }]`, newest first.
+- Rows about a gift that is hidden from the viewer (same rule as the gift: recipient = the viewer and the season isn't past or archived; no season = hidden) are **left out entirely**.
+- `summary` is human-readable, e.g. `Added "LEGO tree house" for Ava` or `Marked "Fuzzy socks" as wrapped`. Status changes get their own wording.
+- `seasonId` is an optional filter.
+
+## Link preview (auto-fill)
+`POST /link-preview` with `{ url }` → `{ title, imageUrl, priceCents|null, store }`. Every field is `""` or `null` when it can't be found.
+- The server fetches the page: http(s) URLs only, 5-second timeout, first 1 MB read, a browser-like User-Agent, at most 3 redirects.
+- **Blocked targets:** localhost, private and link-local IPs, and non-standard ports.
+- **What it reads:** `og:title`, `twitter:title`, or `<title>`; `og:image` (resolved to an absolute URL); price from `product:price:amount`, `og:price:amount`, `itemprop="price"`, or JSON-LD `offers.price`; store from `og:site_name`, or else the hostname without `www.`, title-cased (e.g. `Target`).
+- **Failures:** it never throws on a remote failure. A remote failure returns 200 with empty fields plus `"blocked": true` when the site refused (403/503/captcha). Only a malformed or disallowed URL returns 400.
+- **Rate limit:** 30 requests per user per minute.
+
+## CSV export / import
+`GET /export.csv?seasonId=` (omit `seasonId` for all gifts) → `text/csv` with `Content-Disposition: attachment; filename="gifts-<season or all>.csv"`.
+- Columns: `season,recipient,title,status,category,wished,priority,est_price,actual_price,store,url,order_number,tracking_url,return_by,from,description`.
+- Prices are in dollars (`12.34`). `from` is people's names joined with ` & `. Gifts hidden from the viewer are excluded.
+
+`POST /import` with `{ csv: string, seasonId: number|null, dryRun: boolean }` → `{ created: number, rows: [{ line, ok, error?, title?, recipient? }] }`. It accepts the same columns, in any order and any letter case; only `title` and `recipient` are required.
+- `recipient` and `from` names are matched case-insensitively against people. Unknown names make that row an error; the import never auto-creates people.
+- Invalid status or category values fall back to `idea` and `other`. Prices accept `$1,234.50`.
+- `dryRun: true` validates without writing. Max 1,000 rows. The `season` column is ignored; `seasonId` from the body is used.
+
+## Unchanged, computed client-side from `/gifts` + `/people`
+The shopping list (by store), the wrapping and Christmas Eve checklist, the givers matrix, and the ideas inbox (`/gifts?seasonId=none`).
+The dashboard already returns `stockingBudgetCents` and `stockingCount` per person. Phase 2 also adds `stockingSpentCents` and `stockingCommittedCents` to each `people[]` entry, using the same money rules but only for `category = "stocking"` (0 when hidden).
