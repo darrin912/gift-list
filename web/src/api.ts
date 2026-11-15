@@ -214,10 +214,11 @@ export interface Passkey {
   lastUsedAt: string | null;
 }
 
-export function similarQueryString(opts: { recipientId: number; title: string; excludeId?: number }): string {
+export function similarQueryString(opts: { recipientId: number; title: string; excludeId?: number; seasonId?: number | null }): string {
   const p = new URLSearchParams();
   p.set("recipientId", String(opts.recipientId));
   p.set("title", opts.title);
+  if (opts.seasonId != null) p.set("seasonId", String(opts.seasonId));
   if (opts.excludeId !== undefined) p.set("excludeId", String(opts.excludeId));
   return `?${p.toString()}`;
 }
@@ -364,7 +365,7 @@ export const api = {
     update: (id: number, input: GiftInput) =>
       request<unknown>("PATCH", `/gifts/${id}`, input).then((d) => unwrap<Gift>(d, "gift")),
     remove: (id: number) => request<unknown>("DELETE", `/gifts/${id}`),
-    similar: (opts: { recipientId: number; title: string; excludeId?: number }) =>
+    similar: (opts: { recipientId: number; title: string; excludeId?: number; seasonId?: number | null }) =>
       request<unknown>("GET", `/gifts/similar${similarQueryString(opts)}`).then((d) => unwrap<SimilarGift[]>(d, "similar")),
     checkPrice: (id: number) => request<unknown>("POST", `/gifts/${id}/check-price`).then((d) => unwrap<Gift>(d, "gift")),
   },

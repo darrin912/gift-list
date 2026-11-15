@@ -172,6 +172,7 @@ describe("similar hint", () => {
     expect(canCheckSimilar("Lego")).toBe(true);
     expect(canCheckSimilar("a.b!")).toBe(false);
     expect(similarQueryString({ recipientId: 4, title: "LEGO & co", excludeId: 9 })).toBe("?recipientId=4&title=LEGO+%26+co&excludeId=9");
+    expect(similarQueryString({ recipientId: 4, title: "Lego", seasonId: 3 })).toBe("?recipientId=4&title=Lego&seasonId=3");
   });
   it("groups history by year", () => {
     const h = [{ season: S(3, "birthday", { date: "2026-03-01" }) }, { season: S(2, "christmas", { date: "2025-12-25" }) }, { season: S(1, "birthday", { date: "2025-03-01" }) }, { season: S(0, "other", { date: null, name: "Old" }) }];
@@ -245,5 +246,6 @@ describe("price watch, activity and passkeys", () => {
     expect(passkeyError(Object.assign(new Error("x"), { name: "InvalidStateError" }), "register").message).toMatch(/already has a passkey/);
     expect(passkeyError(new ApiError(429, "slow down"), "login").message).toMatch(/Too many/);
     expect(passkeyError(new ApiError(401, "nope"), "login").message).toMatch(/isn't recognized/);
+    expect(passkeyError(new ApiError(409, "dup"), "register").message).toMatch(/already has a passkey/);
   });
 });

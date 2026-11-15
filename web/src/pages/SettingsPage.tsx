@@ -129,7 +129,7 @@ function SeasonForm({ season, onDone }: { season?: Season; onDone: () => void })
   const [err, setErr] = useState<string | null>(null);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
   const suggest = (kind: SeasonKind, honoreeId: number | null) => {
-    const next = { ...f, kind, honoreeId: kind === "birthday" || kind === "anniversary" ? honoreeId : null };
+    const next = { ...f, kind, honoreeId: kind !== "christmas" ? honoreeId : null };
     if (!season) {
       const person = honorees.find((p) => p.id === next.honoreeId);
       const nb = person ? nextBirthday(person.birthday) : null;
@@ -171,7 +171,7 @@ function SeasonForm({ season, onDone }: { season?: Season; onDone: () => void })
       overallBudgetCents: cents,
       isActive: f.isActive,
       archived: f.archived,
-      honoreeId: f.kind === "birthday" || f.kind === "anniversary" ? f.honoreeId : null,
+      honoreeId: f.kind !== "christmas" ? f.honoreeId : null,
     });
   }
 
@@ -186,7 +186,7 @@ function SeasonForm({ season, onDone }: { season?: Season; onDone: () => void })
             ))}
           </select>
         </div>
-        {(f.kind === "birthday" || f.kind === "anniversary") && (
+        {f.kind !== "christmas" && (
           <div>
             <label htmlFor={`sh${season?.id ?? "new"}`} className="label">{f.kind === "birthday" ? "Whose birthday?" : "For"}</label>
             <select
@@ -196,7 +196,7 @@ function SeasonForm({ season, onDone }: { season?: Season; onDone: () => void })
               onChange={(e) => suggest(f.kind, e.target.value ? Number(e.target.value) : null)}
               aria-invalid={f.kind === "birthday" && !f.honoreeId && !!err}
             >
-              <option value="">{f.kind === "birthday" ? "Choose…" : "Both of us"}</option>
+              <option value="">{f.kind === "birthday" ? "Choose…" : f.kind === "anniversary" ? "Both of us" : "Nobody in particular"}</option>
               {honorees.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.emoji ? `${p.emoji} ` : ""}

@@ -226,7 +226,7 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
             autoFocus={isNew}
             aria-describedby="similar-hint"
           />
-          <GivenBefore recipientId={f.recipientId} title={f.title} excludeId={gift?.id} recipientName={people.data?.find((p) => p.id === f.recipientId)?.name ?? ""} />
+          <GivenBefore recipientId={f.recipientId} title={f.title} excludeId={gift?.id} seasonId={f.seasonId} recipientName={people.data?.find((p) => p.id === f.recipientId)?.name ?? ""} />
         </Field>
 
         <Field label="Link" htmlFor="url">
@@ -449,12 +449,12 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
 }
 
 /** "🔁 Looks like Ava got LEGO Set in Christmas 2025", checked as you type (debounced). */
-function GivenBefore({ recipientId, title, excludeId, recipientName }: { recipientId: number; title: string; excludeId?: number; recipientName: string }) {
+function GivenBefore({ recipientId, title, excludeId, seasonId, recipientName }: { recipientId: number; title: string; excludeId?: number; seasonId: number | null; recipientName: string }) {
   const t = useDebounced(title.trim(), 450);
   const enabled = recipientId > 0 && canCheckSimilar(t);
   const q = useQuery({
-    queryKey: qk.similar(recipientId, t, excludeId),
-    queryFn: () => api.gifts.similar({ recipientId, title: t, excludeId }),
+    queryKey: qk.similar(recipientId, t, excludeId, seasonId),
+    queryFn: () => api.gifts.similar({ recipientId, title: t, excludeId, seasonId }),
     enabled,
     staleTime: 30_000,
     retry: false,
@@ -495,7 +495,7 @@ function PriceCheck({ gift, linkChanged }: { gift: Gift; linkChanged: boolean })
       else setMsg({ ok: false, text: "Couldn't find a price on that page right now." });
     },
     onError: (e) =>
-      setMsg({ ok: false, text: e instanceof ApiError && e.status === 429 ? "That's a lot of checks. Try again in a minute." : e instanceof ApiError ? e.message : "Couldn't reach that page right now." }),
+      setMsg({ ok: false, text: e instanceof ApiError && e.status === 429 ? "That's a lot of checks. Try again in a minute." : e instanceof ApiError && e.status === 400 ? "That link can't be checked." : e instanceof ApiError ? e.message : "Couldn't reach that page right now." }),
   });
   const info = priceWatchInfo({ ...g, watchPrice: true });
   const meta = [

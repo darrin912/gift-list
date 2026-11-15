@@ -205,7 +205,7 @@ export function defaultDeviceName(ua: string): string {
 
 export const supportsPasskeys = () => typeof window !== "undefined" && typeof window.PublicKeyCredential !== "undefined";
 
-/** Turns WebAuthn and API failures into something a person can act on. null = the user cancelled (say nothing loud). */
+/** Turns WebAuthn and API failures into something a person can act on. quiet = the user cancelled (say nothing loud). */
 export function passkeyError(e: unknown, mode: "login" | "register"): { message: string; quiet: boolean } {
   const name = e && typeof e === "object" && "name" in e ? String((e as { name: unknown }).name) : "";
   const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "";
@@ -216,6 +216,8 @@ export function passkeyError(e: unknown, mode: "login" | "register"): { message:
   if (name === "NotSupportedError" || name === "SecurityError" || code === "ERROR_INVALID_DOMAIN")
     return { message: "Passkeys aren't supported in this browser here. Use your password instead.", quiet: false };
   if (e instanceof ApiError) {
+    if (e.status === 409 && mode === "register") return { message: "This device already has a passkey for your account.", quiet: false };
+    if (e.status === 400 && mode === "register") return { message: "Your device's passkey couldn't be verified. Try again.", quiet: false };
     if (e.status === 429) return { message: "Too many sign-in attempts. Wait 15 minutes, then try again.", quiet: false };
     if (e.status === 401 || e.status === 400)
       return { message: mode === "login" ? "That passkey isn't recognized. Sign in with your password." : e.message, quiet: false };
