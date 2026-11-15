@@ -63,17 +63,18 @@ SELECT
   0
 FROM gifts;
 
+-- Carry over the AUTOINCREMENT high-water mark (the copy only raised it to max(id)) without
+-- writing to sqlite_sequence: insert and remove a placeholder row at the old counter value.
+INSERT INTO gifts_new (id, title)
+SELECT seq, '__m0006_placeholder__' FROM _m0006_seq WHERE seq > (SELECT coalesce(max(id), 0) FROM gifts_new);
+DELETE FROM gifts_new WHERE title = '__m0006_placeholder__' AND id = (SELECT seq FROM _m0006_seq);
+
 -- 3. Swap. gift_givers goes first so dropping gifts cascades into nothing.
 DROP TABLE gift_givers;
 DROP TABLE gifts;
 ALTER TABLE gifts_new RENAME TO gifts;
 CREATE INDEX gifts_season_id_idx ON gifts(season_id);
 CREATE INDEX gifts_price_watch_idx ON gifts(watch_price, last_checked_at);
-
--- Keep the AUTOINCREMENT high-water mark (the copy only set it to max(id)).
-UPDATE sqlite_sequence
-SET seq = max(seq, coalesce((SELECT seq FROM _m0006_seq), 0))
-WHERE name = 'gifts';
 
 -- 4. Givers, exactly as before.
 CREATE TABLE gift_givers (

@@ -228,6 +228,13 @@ Receipt photos, avatars, and nightly backups are out of scope by decision. D1 Ti
 - CSV: the `recipient` column holds names joined with ` & `, or `Family`. Import accepts the same, case-insensitively.
 - Activity summaries: `Added "Trampoline" for Ava & Ben`, `Added "Board game" for the family`.
 
+## Clarifications (as implemented)
+- `PATCH /gifts/:id`: `{ isFamily: true }` alone clears the recipients; a non-empty `recipientIds` alone sets `isFamily: false`. Any other combination must already be valid. The archived check applies to people being **added**, so editing a gift whose recipient was archived later still works.
+- `GET /dashboard` attention items (`returnsSoon`, `orderedNotReceived`, `receivedNotWrapped`) carry `recipientIds` and `isFamily` instead of `recipientId`.
+- Activity items gain `recipientIds: number[]` (as logged; `[]` for family gifts and imports). `recipientId` stays, as the first logged recipient or `null`.
+- `GET /gifts/similar` also accepts `recipientIds=family` (matches family gifts) and the old single `recipientId=`.
+- Import rows' `recipient` echoes the matched names joined with ` & `, or `Family`. Archived people and duplicate names in one cell are row errors.
+
 ## UI
 - Gift form "For": multi-select chips of people (the same style as "From"), plus a **"🏠 Whole family"** chip that is exclusive (it clears the person chips and vice versa).
   - A hint shows how the cost is split, e.g. "$150 each".
