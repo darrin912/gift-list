@@ -104,8 +104,7 @@ Mobile-first and installable to the phone home screen (PWA).
 | Frontend | **React + Vite** with Tailwind, served by the same Worker as static assets |
 | Database | **Cloudflare D1** (SQLite), through **Drizzle ORM**, with migrations kept in the repo |
 | Files | **Cloudflare R2** for receipt photos and avatars |
-| Scheduled jobs | **Cron Triggers** for the nightly backup, price-drop checks, and the weekly digest |
-| Email digest | A transactional email API such as Resend (free tier). Cloudflare's own email sending would need Email Routing turned on for nielsonlife.com, which changes the domain's MX records, so avoid it if the domain already receives email. |
+| Scheduled jobs | **Cron Triggers** for the nightly backup and price-drop checks |
 
 ### Login design (no Cloudflare account needed)
 - Email and password are checked against the `users` table. Passwords are hashed with **PBKDF2-SHA256 through WebCrypto**, which is built into Workers and runs fast enough for the free plan.
@@ -156,7 +155,6 @@ The full scope is listed below. Each phase is usable on its own, so Phase 1 can 
 - Receipt photo upload (R2), person avatars
 - Markdown notes
 - Price-drop watch (daily cron, best effort)
-- Weekly email digest ("3 returns close this week, 4 gifts still to wrap")
 - Nightly backup of the database to R2
 - Passkeys (Face ID / Touch ID)
 - Birthday and anniversary seasons
@@ -175,7 +173,6 @@ The full scope is listed below. Each phase is usable on its own, so Phase 1 can 
 4. **Custom domain:** in the Worker, go to *Settings → Domains & Routes → Add → Custom domain* and enter `gifts.nielsonlife.com`. Cloudflare creates the DNS record and certificate automatically.
 5. **Turn off** the `workers.dev` route and preview URLs (or protect them with Access).
 6. **Create our two accounts:** run `npm run user:create` twice, once for each of us. Then sign in and add the kids.
-7. **Secrets** (Phase 3, for the digest): `npx wrangler secret put RESEND_API_KEY`.
 
 ### Day-to-day
 - `git push` to `main` → database migrations run, then build, then deploy.
@@ -185,7 +182,3 @@ The full scope is listed below. Each phase is usable on its own, so Phase 1 can 
 - $0 on the Workers Free plan. D1's daily read and write limits (enforced since Sept 1, 2026) are far beyond what two people will use. If we ever needed more, the Workers Paid plan ($5/month) lifts them.
 - Backups: D1 Time Travel (point-in-time restore), the nightly R2 export, and the CSV download.
 
----
-
-## 7. Still open
-- Confirm Stephanie's login email. The address given was `20.stephanienielson.com`, which is missing the `@` and the domain.

@@ -32,7 +32,6 @@ These are the features gathered from open-source gift apps, spreadsheet template
 | Profile pictures / avatars | Christmas Community | 3 |
 | Markdown notes | Christmas Community | 3 |
 | Price-drop watch on saved links | (ours) | 3 |
-| Weekly email digest | (ours) | 3 |
 | Passkeys / Face ID sign-in | Christmas Gift List Tracker (app lock) | 3 |
 | Birthday and anniversary seasons | (ours) | 3 |
 
@@ -43,6 +42,7 @@ These are the features gathered from open-source gift apps, spreadsheet template
 | Hiding-spot field | Not wanted |
 | Purchased-by / payer / reimbursement tracking (GiftFlow) | One shared pot |
 | Google / OIDC sign-in (Christmas Community) | We're using the app's own email and password login |
+| Weekly email digest | Not wanted (the dashboard's needs-attention list covers it) |
 
 ## Sources
 - Open source: [GiftFlow](https://github.com/garnajee/giftflow), [Christmas Community](https://github.com/Wingysam/Christmas-Community), [Wishlist (ElfHosted docs)](https://docs.elfhosted.com/app/wishlist/), [Pønskelisten](https://selfhostyourself.com/services/poenskelisten), [Geeftlist](https://selfhostyourself.com/services/geeftlist), [selfhostyourself: Giftster alternatives](https://selfhostyourself.com/alternative-to/giftster)
