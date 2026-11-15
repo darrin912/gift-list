@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gift-list",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-23",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Lock-down: the only way in is the custom domain below.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "gifts.nielsonlife.com", "custom_domain": true }],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gift-list",
+      // Create with `npx wrangler d1 create gift-list` and paste the real ID here.
+      // Local dev (`wrangler dev`, `--local` migrations) works with the placeholder.
+      "database_id": "REPLACE_WITH_D1_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "assets": {
+    "directory": "./web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "observability": { "enabled": true }
+}
