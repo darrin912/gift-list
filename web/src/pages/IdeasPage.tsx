@@ -9,6 +9,7 @@ import { useSeason } from "../lib/season";
 import { EmptyState, ErrorNote, Loading, PersonBadge, UndoBar, type UndoState } from "../components/ui";
 import { IconArrowRight, IconPlus, IconStar } from "../components/Icons";
 import { ListHeader } from "./ListsPage";
+import { isShared, recipientLabel } from "../lib/recipients";
 
 export default function IdeasPage() {
   const { seasons, season: selected } = useSeason();
@@ -23,11 +24,19 @@ export default function IdeasPage() {
 
   const recipients = recipientsOf(people.data ?? []);
   const [title, setTitle] = useState("");
-  const [recipientId, setRecipientId] = useState<number>(0);
+  /** A person id, "family", or "" (not chosen). Several people → use the full form. */
+  const [forValue, setForValue] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
 
   const add = useMutation({
-    mutationFn: () => api.gifts.create({ title: title.trim(), recipientId, seasonId: null, status: "idea" }),
+    mutationFn: () =>
+      api.gifts.create({
+        title: title.trim(),
+        recipientIds: forValue === "family" ? [] : [Number(forValue)],
+        isFamily: forValue === "family",
+        seasonId: null,
+        status: "idea",
+      }),
     onSuccess: () => {
       setTitle("");
       invalidate();
@@ -37,7 +46,7 @@ export default function IdeasPage() {
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!title.trim()) return setErr("What's the idea?");
-    if (!recipientId) return setErr("Choose who it's for.");
+    if (!forValue) return setErr("Choose who it's for.");
     setErr(null);
     add.mutate();
   }
@@ -63,8 +72,9 @@ export default function IdeasPage() {
         <div className="flex gap-2">
           <label className="min-w-0 flex-1">
             <span className="sr-only">For</span>
-            <select className="field" value={recipientId || ""} onChange={(e) => setRecipientId(Number(e.target.value))}>
+            <select className="field" value={forValue} onChange={(e) => setForValue(e.target.value)}>
               <option value="">For…</option>
+              <option value="family">🏠 Whole family</option>
               {recipients.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.emoji ? `${p.emoji} ` : ""}
@@ -79,6 +89,10 @@ export default function IdeasPage() {
         </div>
         {err && <p className="text-[14px] font-medium text-berry">{err}</p>}
         <ErrorNote error={add.error} />
+        <p className="text-[13px] text-muted">
+          For several people?{" "}
+          <Link to="/gifts/new?inbox=1" className="font-semibold text-pine underline underline-offset-4">Use the full form</Link>
+        </p>
       </form>
 
       {ideas.isLoading ? (
@@ -90,12 +104,18 @@ export default function IdeasPage() {
       ) : (
         <div className="space-y-5">
           {groups.map(({ recipientId: rid, gifts }) => {
-            const person = map.get(rid);
+            const family = rid === "family";
+            const person = family ? undefined : map.get(rid);
+            const heading = family ? "Family" : (person?.name ?? "Someone");
             return (
-              <section key={rid} aria-label={person?.name}>
+              <section key={rid} aria-label={heading}>
                 <h2 className="mb-2 flex items-center gap-2 text-[17px] font-bold">
-                  <PersonBadge person={person} size={28} />
-                  {person?.name ?? "Someone"}
+                  {family ? (
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gold-soft text-[15px]" aria-hidden="true">🏠</span>
+                  ) : (
+                    <PersonBadge person={person} size={28} />
+                  )}
+                  {heading}
                   <span className="tnum text-[14px] font-semibold text-muted">{gifts.length}</span>
                 </h2>
                 <ul className="card divide-y divide-line overflow-hidden">
@@ -109,7 +129,7 @@ export default function IdeasPage() {
                             {g.title}
                           </span>
                           <span className="tnum block truncate text-[14px] text-muted">
-                            {[price ? formatCents(price) : null, g.store].filter(Boolean).join(" · ") || "No details yet"}
+                            {[isShared(g) ? `for ${recipientLabel(g, map)}` : null, price ? formatCents(price) : null, g.store].filter(Boolean).join(" · ") || "No details yet"}
                           </span>
                         </Link>
                         {target && (

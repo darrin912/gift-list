@@ -6,6 +6,7 @@ import { readGiftsView, storeGiftsView, type GiftsView } from "../lib/prefs";
 import GiftTable from "../components/GiftTable";
 import { useGifts, usePeople, usePeopleMap, useStores } from "../lib/queries";
 import { useSeason } from "../lib/season";
+import { matchesRecipientFilter, recipientFilterValue } from "../lib/recipients";
 import GiftCard from "../components/GiftCard";
 import { EmptyState, ErrorNote, Loading, PageHeader, statusVar } from "../components/ui";
 import { IconCards, IconFilter, IconPlus, IconSearch, IconStar, IconTable, IconX } from "../components/Icons";
@@ -33,7 +34,7 @@ export default function GiftsPage() {
   const filters: GiftFilters = useMemo(
     () => ({
       seasonId: scope === "inbox" ? "none" : scope === "all" ? undefined : seasonId,
-      recipientId: sp.get("recipient") ? Number(sp.get("recipient")) : undefined,
+      recipientId: recipientFilterValue(sp.get("recipient") ?? sp.get("recipientId")),
       status: statuses.length ? statuses : undefined,
       category: (sp.get("category") as GiftCategory) || undefined,
       store: sp.get("store") || undefined,
@@ -71,10 +72,19 @@ export default function GiftsPage() {
   };
 
   const activeCount = ["recipient", "category", "store", "from", "wished"].filter((k) => sp.get(k)).length;
-  const list = gifts.data ?? [];
+  // The server filters by recipient (any match); re-check so optimistic edits stay consistent.
+  const list = (gifts.data ?? []).filter((g) => matchesRecipientFilter(g, filters.recipientId));
   const total = list.reduce((sum, g) => sum + (g.status === "idea" || g.status === "returned" ? 0 : effectivePriceCents(g)), 0);
   const activePeople = (people.data ?? []).filter((p) => !p.archived);
-  const newHref = `/gifts/new${filters.recipientId ? `?recipient=${filters.recipientId}` : scope === "inbox" ? "?inbox=1" : ""}`;
+  const newHref = `/gifts/new${
+    filters.recipientId === "family"
+      ? `?family=1${scope === "inbox" ? "&inbox=1" : ""}`
+      : filters.recipientId
+        ? `?recipientIds=${filters.recipientId}${scope === "inbox" ? "&inbox=1" : ""}`
+        : scope === "inbox"
+          ? "?inbox=1"
+          : ""
+  }`;
 
   return (
     <>
@@ -166,6 +176,7 @@ export default function GiftsPage() {
                 {p.name}
               </option>
             ))}
+            <option value="family">🏠 Family</option>
           </Select>
           <Select label="From" value={sp.get("from") ?? ""} onChange={(v) => set("from", v)}>
             <option value="">Anyone</option>

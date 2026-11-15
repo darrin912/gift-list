@@ -5,6 +5,7 @@ import { effectivePriceCents, formatCents } from "../lib/format";
 import { ANYWHERE, groupByStore, sumCents } from "../lib/lists";
 import { useGifts, usePeopleMap, useUpdateGift } from "../lib/queries";
 import { useSeason } from "../lib/season";
+import { recipientColor, recipientLabel, recipientSortKey } from "../lib/recipients";
 import { EmptyState, ErrorNote, Loading, QuickAction, Toggle, UndoBar, type UndoState } from "../components/ui";
 import { IconCart, IconCheck, IconStar } from "../components/Icons";
 import { ListHeader } from "./ListsPage";
@@ -21,8 +22,7 @@ export default function ShoppingPage() {
 
   // Filter client-side too, so a tapped "Bought" disappears right away (optimistic update).
   const list = (gifts.data ?? []).filter((g) => statuses.includes(g.status));
-  const name = (id: number) => map.get(id)?.name ?? "";
-  const groups = groupByStore(list, name);
+  const groups = groupByStore(list, (g) => recipientSortKey(g, map));
   const total = sumCents(list.filter((g) => g.status === "planned"));
 
   const bought = (g: Gift) => {
@@ -63,18 +63,17 @@ export default function ShoppingPage() {
               </header>
               <ul className="divide-y divide-line">
                 {grp.gifts.map((g) => {
-                  const r = map.get(g.recipientId);
                   const price = effectivePriceCents(g);
                   return (
                     <li key={g.id} className="flex items-center gap-2 py-2 pl-4 pr-2">
-                      <span className="h-9 w-1.5 shrink-0 rounded-full" style={{ background: r?.color || "var(--line)" }} aria-hidden="true" />
+                      <span className="h-9 w-1.5 shrink-0 rounded-full" style={{ background: recipientColor(g, map) }} aria-hidden="true" />
                       <Link to={`/gifts/${g.id}`} className="min-w-0 flex-1 py-1">
                         <span className="block truncate font-semibold">
                           {g.wished && <IconStar filled size={14} className="-mt-0.5 mr-1 inline text-gold" aria-label="Wished for" />}
                           {g.title}
                         </span>
                         <span className="tnum block truncate text-[14px] text-muted">
-                          {r ? `${r.emoji ? `${r.emoji} ` : ""}${r.name}` : "Someone"}
+                          {`for ${recipientLabel(g, map, { emoji: true })}`}
                           {" · "}
                           {price ? `${formatCents(price)}${g.actualPriceCents === null ? " est." : ""}` : "no price"}
                           {g.status === "idea" && " · idea"}

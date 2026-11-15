@@ -13,8 +13,8 @@ export const qk = {
   dashboard: (seasonId: number | undefined) => ["dashboard", seasonId ?? "active"] as const,
   activity: (limit: number, seasonId: number | undefined) => ["activity", limit, seasonId ?? "all"] as const,
   history: (personId: number) => ["history", personId] as const,
-  similar: (recipientId: number, title: string, excludeId: number | undefined, seasonId: number | null) =>
-    ["similar", recipientId, title, excludeId ?? 0, seasonId ?? "none"] as const,
+  similar: (recipientIds: number[], title: string, excludeId: number | undefined, seasonId: number | null) =>
+    ["similar", [...recipientIds].sort((a, b) => a - b).join(","), title, excludeId ?? 0, seasonId ?? "none"] as const,
   draw: (seasonId: number) => ["draw", seasonId] as const,
   passkeys: ["passkeys"] as const,
 };

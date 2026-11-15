@@ -1,4 +1,4 @@
-// Typed client for the Phase 1, 2 and 3A API. See docs/API.md (the binding contract).
+// Typed client for the Phase 1, 2 and 3 (A–C) API. See docs/API.md (the binding contract).
 // Money is always integer cents. Dates are YYYY-MM-DD strings.
 
 export type PersonKind = "parent" | "kid" | "other";
@@ -41,6 +41,8 @@ export interface Season {
   archived: boolean;
   /** Phase 3: who a birthday (required) or anniversary (optional; null = both parents) is for. */
   honoreeId?: number | null;
+  /** Phase 3C: budget for family gifts (missing = 0). */
+  familyBudgetCents?: number;
 }
 export type SeasonInput = Partial<Omit<Season, "id">>;
 
@@ -53,7 +55,10 @@ export interface PersonBudget {
 export interface Gift {
   id: number;
   seasonId: number | null;
-  recipientId: number;
+  /** Phase 3C: who it's for (1–10 people); empty when `isFamily`. */
+  recipientIds: number[];
+  /** Phase 3C: a gift for the whole family (never a surprise, counts toward no person). */
+  isFamily: boolean;
   title: string;
   description: string | null;
   url: string | null;
@@ -87,7 +92,8 @@ export type GiftInput = Partial<
 export interface GiftFilters {
   /** A season id, or "none" for the ideas inbox. Omit for every season. */
   seasonId?: number | "none";
-  recipientId?: number;
+  /** Any recipient matches; "family" = family gifts. */
+  recipientId?: number | "family";
   status?: GiftStatus[];
   store?: string;
   category?: GiftCategory;
@@ -111,6 +117,13 @@ export interface DashboardPerson {
   stockingCommittedCents?: number;
 }
 
+/** Who an attention row is for. Part C servers send recipientIds/isFamily; older ones a single recipientId. */
+export interface AttentionWho {
+  recipientIds?: number[];
+  isFamily?: boolean;
+  recipientId?: number | null;
+}
+
 export interface Dashboard {
   season: Season;
   totals: {
@@ -125,11 +138,13 @@ export interface Dashboard {
     unallocatedCents?: number;
   };
   people: DashboardPerson[];
+  /** Phase 3C: family gifts (count toward no person). Missing on older servers. */
+  family?: { budgetCents: number; spentCents: number; committedCents: number; giftCount: number };
   fairness: { personId: number; spentCents: number; committedCents: number; giftCount: number }[];
   attention: {
-    returnsSoon: { giftId: number; title: string; recipientId: number; returnBy: string; level: "amber" | "red" }[];
-    orderedNotReceived: { giftId: number; title: string; recipientId: number; store: string | null }[];
-    receivedNotWrapped: { giftId: number; title: string; recipientId: number }[];
+    returnsSoon: (AttentionWho & { giftId: number; title: string; returnBy: string; level: "amber" | "red" })[];
+    orderedNotReceived: (AttentionWho & { giftId: number; title: string; store: string | null })[];
+    receivedNotWrapped: (AttentionWho & { giftId: number; title: string })[];
   };
 }
 
@@ -145,7 +160,9 @@ export interface ActivityEntry {
   action: ActivityAction;
   summary: string;
   giftId: number | null;
-  recipientId: number | null;
+  /** Phase 3C rows carry recipientIds; older rows a single recipientId. */
+  recipientIds?: number[] | null;
+  recipientId?: number | null;
   seasonId: number | null;
   /** ISO timestamp. */
   at: string;
@@ -214,9 +231,9 @@ export interface Passkey {
   lastUsedAt: string | null;
 }
 
-export function similarQueryString(opts: { recipientId: number; title: string; excludeId?: number; seasonId?: number | null }): string {
+export function similarQueryString(opts: { recipientIds: number[]; title: string; excludeId?: number; seasonId?: number | null }): string {
   const p = new URLSearchParams();
-  p.set("recipientId", String(opts.recipientId));
+  p.set("recipientIds", opts.recipientIds.join(","));
   p.set("title", opts.title);
   if (opts.seasonId != null) p.set("seasonId", String(opts.seasonId));
   if (opts.excludeId !== undefined) p.set("excludeId", String(opts.excludeId));
@@ -350,6 +367,8 @@ export const api = {
       request<unknown>("GET", `/seasons/${id}/budgets`).then((d) => unwrap<PersonBudget[]>(d, "budgets")),
     setBudget: (id: number, personId: number, body: { budgetCents: number; stockingBudgetCents?: number }) =>
       request<unknown>("PUT", `/seasons/${id}/budgets/${personId}`, body),
+    setFamilyBudget: (id: number, budgetCents: number) =>
+      request<unknown>("PUT", `/seasons/${id}/family-budget`, { budgetCents }).then((d) => unwrap<Season>(d, "season")),
     draw: (id: number) => request<unknown>("GET", `/seasons/${id}/draw`).then(toDrawResult),
     runDraw: (id: number, body: { participantIds: number[]; avoidPreviousSeason: boolean }) =>
       request<unknown>("POST", `/seasons/${id}/draw`, body).then(toDrawResult),
@@ -360,12 +379,12 @@ export const api = {
       request<unknown>("GET", `/gifts${giftQueryString(filters)}`).then((d) => unwrap<Gift[]>(d, "gifts")),
     /** GET /gifts/:id (the contract's surprise rule refers to GET on a single gift). */
     get: (id: number) => request<unknown>("GET", `/gifts/${id}`).then((d) => unwrap<Gift>(d, "gift")),
-    create: (input: GiftInput & { title: string; recipientId: number }) =>
+    create: (input: GiftInput & { title: string; recipientIds: number[]; isFamily: boolean }) =>
       request<unknown>("POST", "/gifts", input).then((d) => unwrap<Gift>(d, "gift")),
     update: (id: number, input: GiftInput) =>
       request<unknown>("PATCH", `/gifts/${id}`, input).then((d) => unwrap<Gift>(d, "gift")),
     remove: (id: number) => request<unknown>("DELETE", `/gifts/${id}`),
-    similar: (opts: { recipientId: number; title: string; excludeId?: number; seasonId?: number | null }) =>
+    similar: (opts: { recipientIds: number[]; title: string; excludeId?: number; seasonId?: number | null }) =>
       request<unknown>("GET", `/gifts/similar${similarQueryString(opts)}`).then((d) => unwrap<SimilarGift[]>(d, "similar")),
     checkPrice: (id: number) => request<unknown>("POST", `/gifts/${id}/check-price`).then((d) => unwrap<Gift>(d, "gift")),
   },

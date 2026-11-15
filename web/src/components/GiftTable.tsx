@@ -6,6 +6,7 @@ import { sortGifts, type SortDir, type SortKey } from "../lib/lists";
 import { useUpdateGift } from "../lib/queries";
 import { priceWatchInfo } from "../lib/phase3";
 import { giversLabel, PriceDropBadge } from "./GiftCard";
+import { recipientColor, recipientLabel, recipientSortKey } from "../lib/recipients";
 import { IconStar } from "./Icons";
 import { statusVar } from "./ui";
 
@@ -25,8 +26,7 @@ export default function GiftTable({ gifts, map, showRecipient = true }: { gifts:
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "recipient", dir: "asc" });
   const navigate = useNavigate();
   const update = useUpdateGift();
-  const name = (id: number) => map.get(id)?.name ?? "";
-  const rows = sortGifts(gifts, sort.key, sort.dir, name);
+  const rows = sortGifts(gifts, sort.key, sort.dir, (g) => recipientSortKey(g, map));
   const cols = COLS.filter((c) => showRecipient || c.key !== "recipient");
 
   const toggle = (key: SortKey) =>
@@ -66,12 +66,11 @@ export default function GiftTable({ gifts, map, showRecipient = true }: { gifts:
         </thead>
         <tbody>
           {rows.map((g) => {
-            const r = map.get(g.recipientId);
             const price = effectivePriceCents(g);
             const watch = priceWatchInfo(g);
             return (
               <tr key={g.id} className="group cursor-pointer border-b border-line last:border-0 hover:bg-surface-2" onClick={() => navigate(`/gifts/${g.id}`)}>
-                <th scope="row" className="sticky left-0 z-10 max-w-[11rem] bg-surface px-3 py-2 font-semibold group-hover:bg-surface-2 sm:max-w-[16rem]" style={{ boxShadow: `inset 3px 0 0 ${r?.color || "var(--line)"}` }}>
+                <th scope="row" className="sticky left-0 z-10 max-w-[11rem] bg-surface px-3 py-2 font-semibold group-hover:bg-surface-2 sm:max-w-[16rem]" style={{ boxShadow: `inset 3px 0 0 ${recipientColor(g, map)}` }}>
                   <Link to={`/gifts/${g.id}`} className="line-clamp-2 leading-snug" onClick={(e) => e.stopPropagation()}>
                     {g.wished && <IconStar filled size={13} className="-mt-0.5 mr-1 inline text-gold" aria-label="Wished for" />}
                     {g.title}
@@ -79,8 +78,7 @@ export default function GiftTable({ gifts, map, showRecipient = true }: { gifts:
                 </th>
                 {showRecipient && (
                   <td className="whitespace-nowrap px-3 py-2">
-                    {r?.emoji ? `${r.emoji} ` : ""}
-                    {r?.name ?? "Unknown"}
+                    {recipientLabel(g, map, { emoji: true })}
                   </td>
                 )}
                 <td className="whitespace-nowrap px-1 py-1" onClick={(e) => e.stopPropagation()}>

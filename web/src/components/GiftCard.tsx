@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import type { Gift, GiftStatus, Person } from "../api";
 import { ADVANCE_LABEL, ALL_STATUSES, CATEGORY_LABEL, effectivePriceCents, formatCents, nextStatus, returnLevel, returnPhrase, STATUS_LABEL } from "../lib/format";
 import { priceWatchInfo } from "../lib/phase3";
+import { isFamilyGift, isShared, recipientColor, recipientLabel } from "../lib/recipients";
 import { useUpdateGift } from "../lib/queries";
 import { IconCheck, IconStar } from "./Icons";
 import { Markdown, StatusTrack, statusVar } from "./ui";
@@ -15,6 +16,18 @@ export function PriceDropBadge({ className = "" }: { className?: string }) {
   );
 }
 
+/** Small "shared" pill for a gift that's for more than one person (shown in one person's lists). */
+export function SharedBadge({ label, className = "" }: { label?: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center whitespace-nowrap rounded-full bg-surface-2 px-2 py-0.5 text-[12px] font-semibold text-muted ${className}`}
+      title={label ? `Shared: ${label}` : "Shared gift"}
+    >
+      shared
+    </span>
+  );
+}
+
 export function giversLabel(ids: number[], map: Map<number, Person>): string {
   const names = ids.map((id) => map.get(id)?.name).filter(Boolean) as string[];
   if (!names.length) return "";
@@ -24,13 +37,14 @@ export function giversLabel(ids: number[], map: Map<number, Person>): string {
 
 export default function GiftCard({ gift, map, showRecipient = true }: { gift: Gift; map: Map<number, Person>; showRecipient?: boolean }) {
   const update = useUpdateGift();
-  const recipient = map.get(gift.recipientId);
+  const forLabel = recipientLabel(gift, map, { emoji: true });
   const next = nextStatus(gift.status);
   const price = effectivePriceCents(gift);
   const level = returnLevel(gift.returnBy, gift.status);
   const from = giversLabel(gift.giverIds, map);
   const setStatus = (status: GiftStatus) => update.mutate({ id: gift.id, input: { status } });
-  const color = recipient?.color || "var(--line)";
+  const color = recipientColor(gift, map);
+  const shared = isShared(gift);
   const watch = priceWatchInfo(gift);
 
   return (
@@ -43,10 +57,12 @@ export default function GiftCard({ gift, map, showRecipient = true }: { gift: Gi
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             {showRecipient && (
-              <div className="mb-0.5 text-[14px] font-semibold" style={{ color: recipient?.color || "var(--muted)" }}>
-                {recipient?.emoji ? `${recipient.emoji} ` : ""}
-                {recipient?.name ?? "Unknown"}
+              <div className="mb-0.5 text-[14px] font-semibold" style={{ color: color === "var(--line)" ? "var(--muted)" : color }}>
+                {forLabel}
               </div>
+            )}
+            {!showRecipient && (shared || isFamilyGift(gift)) && (
+              <div className="mb-1">{isFamilyGift(gift) ? <span className="text-[13px] font-semibold text-gold">🏠 Family</span> : <SharedBadge label={recipientLabel(gift, map)} />}</div>
             )}
             <h3 className="text-[17px] font-bold leading-snug">
               {gift.wished && <IconStar filled size={15} className="-mt-0.5 mr-1 inline text-gold" aria-label="Wished for" />}

@@ -2,6 +2,7 @@
 // Everything here is computed client-side from /gifts + /people (see docs/API.md).
 import type { Gift, GiftStatus, LinkPreview, Person } from "../api";
 import { effectivePriceCents } from "./format";
+import { giftRecipientIds, isFamilyGift } from "./recipients";
 
 export const ANYWHERE = "Anywhere";
 
@@ -16,7 +17,7 @@ export interface StoreGroup {
  * case-insensitively (the first spelling seen wins). Gifts with no store go in a final
  * "Anywhere" group. Groups are sorted by most gifts, then name; gifts by recipient then title.
  */
-export function groupByStore(gifts: Gift[], recipientName: (id: number) => string = () => ""): StoreGroup[] {
+export function groupByStore(gifts: Gift[], recipientName: (g: Gift) => string = () => ""): StoreGroup[] {
   const groups = new Map<string, StoreGroup>();
   for (const g of gifts) {
     const raw = (g.store ?? "").trim();
@@ -34,7 +35,7 @@ export function groupByStore(gifts: Gift[], recipientName: (id: number) => strin
   const sorted = [...groups.values()].sort((a, b) => b.gifts.length - a.gifts.length || a.store.localeCompare(b.store));
   if (anywhere) sorted.push(anywhere);
   for (const grp of sorted) {
-    grp.gifts.sort((a, b) => recipientName(a.recipientId).localeCompare(recipientName(b.recipientId)) || a.title.localeCompare(b.title));
+    grp.gifts.sort((a, b) => recipientName(a).localeCompare(recipientName(b)) || a.title.localeCompare(b.title));
   }
   return sorted;
 }
@@ -45,25 +46,40 @@ export function sumCents(gifts: Gift[]): number {
 }
 
 export interface RecipientGroup {
-  recipientId: number;
+  /** A person id, or "family" for the family group. */
+  recipientId: number | "family";
   gifts: Gift[];
 }
 
-/** Groups gifts by recipient, keeping `order` (person ids) first and anyone else after. */
+/**
+ * Groups gifts by recipient, keeping `order` (person ids) first and anyone else after.
+ * A gift for several people is listed once, under the first of them in `order`
+ * (callers show "for Ava & Ben"). Family gifts go in a final "family" group.
+ */
 export function groupByRecipient(gifts: Gift[], order: number[] = []): RecipientGroup[] {
-  const m = new Map<number, Gift[]>();
-  for (const g of gifts) {
-    const list = m.get(g.recipientId) ?? [];
-    list.push(g);
-    m.set(g.recipientId, list);
-  }
   const rank = (id: number) => {
     const i = order.indexOf(id);
     return i < 0 ? Number.MAX_SAFE_INTEGER : i;
   };
-  return [...m.entries()]
+  const m = new Map<number, Gift[]>();
+  const family: Gift[] = [];
+  for (const g of gifts) {
+    if (isFamilyGift(g)) {
+      family.push(g);
+      continue;
+    }
+    const ids = giftRecipientIds(g);
+    if (!ids.length) continue;
+    const key = [...ids].sort((a, b) => rank(a) - rank(b) || a - b)[0];
+    const list = m.get(key) ?? [];
+    list.push(g);
+    m.set(key, list);
+  }
+  const out: RecipientGroup[] = [...m.entries()]
     .sort(([a], [b]) => rank(a) - rank(b) || a - b)
     .map(([recipientId, list]) => ({ recipientId, gifts: list.sort((x, y) => x.title.localeCompare(y.title)) }));
+  if (family.length) out.push({ recipientId: "family", gifts: family.sort((x, y) => x.title.localeCompare(y.title)) });
+  return out;
 }
 
 export interface WrapProgress {
@@ -110,13 +126,17 @@ export function buildGiversMatrix(gifts: Gift[], people: Person[]): GiversMatrix
   const recipientIds = new Set(recipients.map((p) => p.id));
   const cells = new Map<string, Gift[]>();
   for (const g of gifts) {
-    if (g.status === "returned" || !recipientIds.has(g.recipientId)) continue;
-    for (const giver of new Set(g.giverIds)) {
-      if (!giverIds.has(giver) || giver === g.recipientId) continue;
-      const k = cellKey(giver, g.recipientId);
-      const list = cells.get(k) ?? [];
-      list.push(g);
-      cells.set(k, list);
+    if (g.status === "returned") continue;
+    // Phase 3C: a gift for several people fills every recipient's column. Family gifts fill none.
+    for (const rid of new Set(giftRecipientIds(g))) {
+      if (!recipientIds.has(rid)) continue;
+      for (const giver of new Set(g.giverIds)) {
+        if (!giverIds.has(giver) || giver === rid) continue;
+        const k = cellKey(giver, rid);
+        const list = cells.get(k) ?? [];
+        list.push(g);
+        cells.set(k, list);
+      }
     }
   }
   return { givers, recipients, cells };
@@ -138,14 +158,14 @@ export type SortDir = "asc" | "desc";
 const STATUS_ORDER: GiftStatus[] = ["idea", "planned", "ordered", "received", "wrapped", "given", "returned"];
 
 /** Stable sort for the gifts table. Empty stores sort last in either direction. */
-export function sortGifts(gifts: Gift[], key: SortKey, dir: SortDir, recipientName: (id: number) => string): Gift[] {
+export function sortGifts(gifts: Gift[], key: SortKey, dir: SortDir, recipientName: (g: Gift) => string): Gift[] {
   const sign = dir === "asc" ? 1 : -1;
   const cmp = (a: Gift, b: Gift): number => {
     switch (key) {
       case "title":
         return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
       case "recipient":
-        return recipientName(a.recipientId).localeCompare(recipientName(b.recipientId));
+        return recipientName(a).localeCompare(recipientName(b));
       case "status":
         return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
       case "price":

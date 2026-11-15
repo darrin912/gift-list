@@ -2,12 +2,13 @@ import { Link } from "react-router-dom";
 import type { Gift, Person } from "../api";
 import { buildGiversMatrix, cellKey, emptyCellCount, type GiversMatrix } from "../lib/lists";
 import { useGifts, useMe, usePeople } from "../lib/queries";
+import { isShared } from "../lib/recipients";
 import { useSeason } from "../lib/season";
 import { EmptyState, ErrorNote, Loading, PersonBadge } from "../components/ui";
 import { IconPlus } from "../components/Icons";
 import { ListHeader } from "./ListsPage";
 
-const addHref = (giver: Person, recipient: Person) => `/gifts/new?recipient=${recipient.id}&from=${giver.id}`;
+const addHref = (giver: Person, recipient: Person) => `/gifts/new?recipientIds=${recipient.id}&from=${giver.id}`;
 
 export default function GiversPage() {
   const { seasonId, season } = useSeason();
@@ -112,6 +113,7 @@ function Titles({ gifts }: { gifts: Gift[] }) {
           <Link to={`/gifts/${g.id}`} className="hover:text-ink hover:underline">
             {g.title}
           </Link>
+          {isShared(g) && <span className="text-[12px]"> (shared)</span>}
         </span>
       ))}
     </div>

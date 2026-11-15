@@ -6,8 +6,9 @@ import { ALL_STATUSES, CATEGORIES, CATEGORY_LABEL, centsToInput, formatCents, is
 import { looksLikeUrl, mergePreview } from "../lib/lists";
 import { timeAgo } from "../lib/activity";
 import { canCheckSimilar, groupSeasons, priceWatchInfo, similarHint, similarHintText } from "../lib/phase3";
-import { qk, useDebounced, useInvalidateGifts, usePeople, useStores } from "../lib/queries";
+import { qk, useDebounced, useInvalidateGifts, usePeople, usePeopleMap, useStores } from "../lib/queries";
 import { useSeason } from "../lib/season";
+import { forFromParams, forStateError, giftRecipientIds, recipientLabel, splitHint, toggleFamily, toggleRecipient, type ForState } from "../lib/recipients";
 import { ErrorNote, Loading, MarkdownHint, Sheet, Toggle } from "../components/ui";
 import { IconSparkle, IconTrash } from "../components/Icons";
 
@@ -75,7 +76,7 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
 
   const [f, setF] = useState(() => ({
     title: gift?.title ?? "",
-    recipientId: gift?.recipientId ?? (sp.get("recipient") ? Number(sp.get("recipient")) : 0),
+    ...(gift ? ({ recipientIds: giftRecipientIds(gift), isFamily: gift.isFamily === true } as ForState) : forFromParams(sp)),
     seasonId: gift ? gift.seasonId : sp.get("inbox") ? null : (currentSeasonId ?? null),
     category: gift?.category ?? ("main" as GiftCategory),
     status: gift?.status ?? ("idea" as GiftStatus),
@@ -130,14 +131,23 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
   };
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
 
-  const active = (people.data ?? []).filter((p) => !p.archived || p.id === f.recipientId || f.giverIds.includes(p.id));
+  const map = usePeopleMap();
+  const active = (people.data ?? []).filter((p) => !p.archived || f.recipientIds.includes(p.id) || f.giverIds.includes(p.id));
+  const forPeople = active.filter((p) => !isGiverOnly(p) || f.recipientIds.includes(p.id));
+  const setFor = (next: ForState) => setF((p) => ({ ...p, ...next }));
+  const priceForHint = (() => {
+    const a = parseDollars(f.actual);
+    const e = parseDollars(f.est);
+    return a !== null && !Number.isNaN(a) ? a : e !== null && !Number.isNaN(e) ? e : null;
+  })();
+  const split = splitHint(priceForHint, f.recipientIds);
   const parents = active.filter((p) => p.kind === "parent");
   const parentIds = parents.map((p) => p.id);
   const bothParents = parentIds.length === 2 && parentIds.every((id) => f.giverIds.includes(id)) && f.giverIds.length === 2;
 
   const save = useMutation({
     mutationFn: (input: GiftInput) =>
-      gift ? api.gifts.update(gift.id, input) : api.gifts.create(input as GiftInput & { title: string; recipientId: number }),
+      gift ? api.gifts.update(gift.id, input) : api.gifts.create(input as GiftInput & { title: string; recipientIds: number[]; isFamily: boolean }),
     onSuccess: () => {
       invalidate();
       onDone();
@@ -157,7 +167,8 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
     const est = parseDollars(f.est);
     const actual = parseDollars(f.actual);
     if (!f.title.trim()) return setFormError("Add a title.");
-    if (!f.recipientId) return setFormError("Choose who the gift is for.");
+    const forErr = forStateError(f);
+    if (forErr) return setFormError(forErr);
     if (Number.isNaN(est) || Number.isNaN(actual)) return setFormError("Enter prices in dollars, like 24.99.");
     for (const [label, v] of [
       ["Link", f.url],
@@ -168,7 +179,8 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
     }
     save.mutate({
       title: f.title.trim(),
-      recipientId: f.recipientId,
+      recipientIds: f.isFamily ? [] : [...new Set(f.recipientIds)],
+      isFamily: f.isFamily,
       seasonId: f.seasonId,
       category: f.category,
       status: f.status,
@@ -226,7 +238,13 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
             autoFocus={isNew}
             aria-describedby="similar-hint"
           />
-          <GivenBefore recipientId={f.recipientId} title={f.title} excludeId={gift?.id} seasonId={f.seasonId} recipientName={people.data?.find((p) => p.id === f.recipientId)?.name ?? ""} />
+          <GivenBefore
+            recipientIds={f.isFamily ? [] : f.recipientIds}
+            title={f.title}
+            excludeId={gift?.id}
+            seasonId={f.seasonId}
+            recipientName={f.recipientIds.length ? recipientLabel({ recipientIds: f.recipientIds }, map) : ""}
+          />
         </Field>
 
         <Field label="Link" htmlFor="url">
@@ -279,18 +297,47 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
           )}
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="For" htmlFor="recipient">
-            <select id="recipient" className="field" value={f.recipientId || ""} onChange={(e) => set("recipientId", Number(e.target.value))}>
-              <option value="">Choose…</option>
-              {active.filter((p) => !isGiverOnly(p) || p.id === f.recipientId).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.emoji ? `${p.emoji} ` : ""}
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </Field>
+        <fieldset aria-describedby="for-note">
+          <legend className="label">For</legend>
+          <div className="flex flex-wrap gap-2">
+            {forPeople.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="chip"
+                aria-pressed={!f.isFamily && f.recipientIds.includes(p.id)}
+                onClick={() => setFor(toggleRecipient(f, p.id))}
+              >
+                {p.emoji && <span aria-hidden="true">{p.emoji}</span>}
+                {p.name}
+              </button>
+            ))}
+            <button type="button" className="chip" aria-pressed={f.isFamily} onClick={() => setFor(toggleFamily(f))}>
+              <span aria-hidden="true">🏠</span>
+              Whole family
+            </button>
+          </div>
+          <p id="for-note" className="mt-1.5 text-[13px] text-muted" aria-live="polite">
+            {f.isFamily ? (
+              <span className="font-semibold text-gold">Not a surprise; visible to both of you.</span>
+            ) : f.recipientIds.length > 1 ? (
+              <>
+                Shared by {f.recipientIds.length}
+                {split ? (
+                  <>
+                    : <b className="tnum text-ink">{split}</b> toward each budget.
+                  </>
+                ) : (
+                  ". The cost is split evenly between their budgets."
+                )}
+              </>
+            ) : (
+              "Pick one or more people, or the whole family."
+            )}
+          </p>
+        </fieldset>
+
+        <div>
           <Field label="Season" htmlFor="season">
             <select id="season" className="field" value={f.seasonId ?? "none"} onChange={(e) => set("seasonId", e.target.value === "none" ? null : Number(e.target.value))}>
               {groupSeasons(seasons.filter((s) => !s.archived || s.id === f.seasonId)).map((g) => (
@@ -449,12 +496,12 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
 }
 
 /** "🔁 Looks like Ava got LEGO Set in Christmas 2025", checked as you type (debounced). */
-function GivenBefore({ recipientId, title, excludeId, seasonId, recipientName }: { recipientId: number; title: string; excludeId?: number; seasonId: number | null; recipientName: string }) {
+function GivenBefore({ recipientIds, title, excludeId, seasonId, recipientName }: { recipientIds: number[]; title: string; excludeId?: number; seasonId: number | null; recipientName: string }) {
   const t = useDebounced(title.trim(), 450);
-  const enabled = recipientId > 0 && canCheckSimilar(t);
+  const enabled = recipientIds.length > 0 && canCheckSimilar(t);
   const q = useQuery({
-    queryKey: qk.similar(recipientId, t, excludeId, seasonId),
-    queryFn: () => api.gifts.similar({ recipientId, title: t, excludeId, seasonId }),
+    queryKey: qk.similar(recipientIds, t, excludeId, seasonId),
+    queryFn: () => api.gifts.similar({ recipientIds, title: t, excludeId, seasonId }),
     enabled,
     staleTime: 30_000,
     retry: false,

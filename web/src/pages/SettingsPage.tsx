@@ -9,6 +9,7 @@ import { applyTheme, readThemePref, storeThemePref, type ThemePref } from "../li
 import { qk, useBudgets, useMe, usePasskeys, usePeople, usePeopleMap } from "../lib/queries";
 import { birthdaySeasonName, defaultDeviceName, nextBirthday, passkeyError, supportsPasskeys } from "../lib/phase3";
 import { useSeason } from "../lib/season";
+import { csvRecipientLabel } from "../lib/recipients";
 import { AllocationLine, ErrorNote, Loading, PageHeader, PersonBadge, Toggle } from "../components/ui";
 import { IconCheck, IconDownload, IconLogout, IconPlus, IconTrash, IconUpload, IconX } from "../components/Icons";
 import { timeAgo } from "../lib/activity";
@@ -252,10 +253,11 @@ function Budgets() {
   const onDraft = useCallback((key: string, cents: number) => setDrafts((d) => (d[key] === cents ? d : { ...d, [key]: cents })), []);
   if (!season) return null;
   const list = recipientsOf(people.data ?? []);
-  const alloc = allocation(
-    season.overallBudgetCents,
-    list.map((p) => drafts[`${season.id}-${p.id}`] ?? budgets.data?.find((b) => b.personId === p.id)?.budgetCents ?? 0),
-  );
+  const familyKey = `${season.id}-family`;
+  const alloc = allocation(season.overallBudgetCents, [
+    ...list.map((p) => drafts[`${season.id}-${p.id}`] ?? budgets.data?.find((b) => b.personId === p.id)?.budgetCents ?? 0),
+    drafts[familyKey] ?? season.familyBudgetCents ?? 0,
+  ]);
   return (
     <Section id="budgets" title="Budgets" sub={`Per person for ${season.name}. Saves when you leave a field.`}>
       <ErrorNote error={budgets.error} />
@@ -275,6 +277,7 @@ function Budgets() {
               const key = `${season.id}-${p.id}`;
               return <BudgetRow key={key} draftKey={key} onDraft={onDraft} seasonId={season.id} person={p} budget={row?.budgetCents ?? 0} stocking={row?.stockingBudgetCents ?? 0} />;
             })}
+            <FamilyBudgetRow key={familyKey} draftKey={familyKey} onDraft={onDraft} seasonId={season.id} budget={season.familyBudgetCents ?? 0} />
           </div>
         </>
       )}
@@ -331,6 +334,44 @@ function BudgetRow({
       <div onBlur={commit}>
         <Money id={`s${person.id}`} value={s} onChange={setS} />
       </div>
+    </>
+  );
+}
+
+/** Phase 3C: the season's budget for family gifts (PUT /seasons/:id/family-budget). */
+function FamilyBudgetRow({ seasonId, budget, draftKey, onDraft }: { seasonId: number; budget: number; draftKey: string; onDraft: (key: string, cents: number) => void }) {
+  const qc = useQueryClient();
+  const [b, setB] = useState(centsToInput(budget || null));
+  useEffect(() => {
+    const c = parseDollars(b);
+    if (!Number.isNaN(c)) onDraft(draftKey, c ?? 0);
+  }, [b, draftKey, onDraft]);
+  const save = useMutation({
+    mutationFn: (cents: number) => api.seasons.setFamilyBudget(seasonId, cents),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.seasons });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+  const commit = () => {
+    const bc = parseDollars(b) ?? 0;
+    if (Number.isNaN(bc) || bc === budget) return;
+    save.mutate(bc);
+  };
+  return (
+    <>
+      <span className="flex min-w-0 items-center gap-2 border-t border-line pt-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gold-soft text-[15px]" aria-hidden="true">
+          🏠
+        </span>
+        <span className="truncate font-semibold">Family</span>
+        {save.isError && <span className="text-[12px] text-berry">Not saved</span>}
+      </span>
+      <div onBlur={commit} className="border-t border-line pt-2">
+        <label htmlFor="bfamily" className="sr-only">Family gift budget</label>
+        <Money id="bfamily" value={b} onChange={setB} />
+      </div>
+      <span className="border-t border-line pt-2 text-center text-[13px] text-muted" aria-hidden="true">–</span>
     </>
   );
 }
@@ -648,7 +689,7 @@ function ImportCsv() {
   const targetName = target === "inbox" ? "the ideas inbox" : (seasons.find((s) => String(s.id) === target)?.name ?? "the season");
 
   return (
-    <Section id="import" title="Import from CSV" sub="Columns like the export. Only title and recipient are required; names must match people.">
+    <Section id="import" title="Import from CSV" sub="Columns like the export. Only title and recipient are required; names must match people. Use “Ava & Ben” for a shared gift or “Family”.">
       <div className="space-y-3">
         <div className="flex gap-2">
           <button type="button" className="btn-quiet flex-1" onClick={() => fileRef.current?.click()}>
@@ -776,7 +817,7 @@ function ImportPreviewTable({ result }: { result: ImportResult }) {
                 <span className="line-clamp-2 break-words">{r.title || <span className="text-muted">–</span>}</span>
                 {r.error && <span className="block text-[13px] font-semibold text-berry">{r.error}</span>}
               </td>
-              <td className="break-words px-2.5 py-2">{r.recipient || <span className="text-muted">–</span>}</td>
+              <td className="break-words px-2.5 py-2">{r.recipient ? csvRecipientLabel(r.recipient) : <span className="text-muted">–</span>}</td>
             </tr>
           ))}
         </tbody>

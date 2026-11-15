@@ -6,7 +6,8 @@ import { ALL_STATUSES, centsToInput, effectivePriceCents, formatCents, formatDat
 import { useBudgets, useGifts, useHistory, useMe, usePeople, usePeopleMap } from "../lib/queries";
 import { useSeason } from "../lib/season";
 import { groupHistoryByYear, inDays, nextBirthday } from "../lib/phase3";
-import GiftCard from "../components/GiftCard";
+import GiftCard, { SharedBadge } from "../components/GiftCard";
+import { isShared, recipientLabel, shareFor } from "../lib/recipients";
 import { EmptyState, ErrorNote, Loading, Markdown, MoneyBar, PersonBadge, StatusPill, statusVar } from "../components/ui";
 import { IconChevronLeft, IconPlus } from "../components/Icons";
 import { Money } from "./GiftFormPage";
@@ -28,8 +29,10 @@ export default function PersonPage() {
   const isMe = me.data?.personId === p.id;
   const list = gifts.data ?? [];
   const sizes = Object.entries(p.sizes ?? {}).filter(([, v]) => v);
-  const spent = list.filter((g) => ["ordered", "received", "wrapped", "given"].includes(g.status)).reduce((s, g) => s + effectivePriceCents(g), 0);
-  const committed = list.filter((g) => g.status === "planned").reduce((s, g) => s + effectivePriceCents(g), 0);
+  // Phase 3C: a shared gift counts its even share toward each recipient (like the server).
+  const share = (g: (typeof list)[number]) => shareFor(effectivePriceCents(g), g, p.id);
+  const spent = list.filter((g) => ["ordered", "received", "wrapped", "given"].includes(g.status)).reduce((s, g) => s + share(g), 0);
+  const committed = list.filter((g) => g.status === "planned").reduce((s, g) => s + share(g), 0);
 
   return (
     <>
@@ -95,7 +98,7 @@ export default function PersonPage() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-[19px] font-bold">{giverOnly ? `From ${p.name}` : "Gifts"}{season ? ` · ${season.name}` : ""}</h2>
             {!isMe && !giverOnly && (
-              <Link to={`/gifts/new?recipient=${p.id}`} className="chip">
+              <Link to={`/gifts/new?recipientIds=${p.id}`} className="chip">
                 <IconPlus size={16} /> Add
               </Link>
             )}
@@ -108,7 +111,7 @@ export default function PersonPage() {
             giverOnly ? (
               <EmptyState title={`No gifts from ${p.name} yet`} body="Pick this tag in a gift's “From” field." />
             ) : (
-            <EmptyState title={`No gifts for ${p.name} yet`} action={<Link to={`/gifts/new?recipient=${p.id}`} className="btn-primary"><IconPlus size={20} /> Add a gift</Link>} />
+            <EmptyState title={`No gifts for ${p.name} yet`} action={<Link to={`/gifts/new?recipientIds=${p.id}`} className="btn-primary"><IconPlus size={20} /> Add a gift</Link>} />
             )
           ) : (
             <div className="space-y-5">
@@ -142,6 +145,7 @@ export default function PersonPage() {
 /** Gifts from earlier seasons, grouped by year (surprises stay hidden server-side). */
 function History({ personId }: { personId: number }) {
   const q = useHistory(personId);
+  const map = usePeopleMap();
   const groups = groupHistoryByYear((q.data ?? []).filter((h) => h.gifts.length));
   return (
     <section className="card p-5" aria-labelledby="hist-h">
@@ -166,6 +170,7 @@ function History({ personId }: { personId: number }) {
                       <li key={gift.id}>
                         <Link to={`/gifts/${gift.id}`} className="flex min-h-[48px] items-center gap-3 px-3 py-2 hover:bg-surface-2">
                           <span className="min-w-0 flex-1 truncate">{gift.title}</span>
+                          {isShared(gift) && <SharedBadge label={recipientLabel(gift, map)} className="shrink-0" />}
                           {effectivePriceCents(gift) > 0 && <span className="tnum shrink-0 text-[14px] text-muted">{formatCents(effectivePriceCents(gift))}</span>}
                           <StatusPill status={gift.status} />
                         </Link>

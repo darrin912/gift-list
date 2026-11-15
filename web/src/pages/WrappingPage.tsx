@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Gift, GiftStatus, Person } from "../api";
+import { isShared, recipientColor, recipientLabel } from "../lib/recipients";
 import { ratio } from "../lib/format";
 import { groupByRecipient, wrapProgress } from "../lib/lists";
 import { useGifts, usePeople, usePeopleMap, useUpdateGift } from "../lib/queries";
@@ -62,7 +63,7 @@ export default function WrappingPage() {
             ) : (
               <ul className="card divide-y divide-line overflow-hidden">
                 {toWrap.map((g) => (
-                  <WrapRow key={g.id} g={g} person={map.get(g.recipientId)} map={map} onWrap={() => setStatus(g, "wrapped", "Wrapped")} />
+                  <WrapRow key={g.id} g={g} map={map} onWrap={() => setStatus(g, "wrapped", "Wrapped")} />
                 ))}
               </ul>
             )}
@@ -77,13 +78,18 @@ export default function WrappingPage() {
             ) : (
               <div className="space-y-3">
                 {byRecipient.map(({ recipientId, gifts: gs }) => {
-                  const person = map.get(recipientId);
+                  const family = recipientId === "family";
+                  const person = family ? undefined : map.get(recipientId);
                   const given = gs.filter((g) => g.status === "given").length;
                   return (
-                    <div key={recipientId} className="card overflow-hidden" style={{ borderTop: `4px solid ${person?.color || "var(--line)"}` }}>
+                    <div key={recipientId} className="card overflow-hidden" style={{ borderTop: `4px solid ${family ? "var(--gold)" : person?.color || "var(--line)"}` }}>
                       <div className="flex items-center gap-3 px-4 pb-1 pt-3">
-                        <PersonBadge person={person} size={32} />
-                        <h3 className="min-w-0 flex-1 truncate text-[17px] font-bold">{person?.name ?? "Someone"}</h3>
+                        {family ? (
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-soft text-[16px]" aria-hidden="true">🏠</span>
+                        ) : (
+                          <PersonBadge person={person} size={32} />
+                        )}
+                        <h3 className="min-w-0 flex-1 truncate text-[17px] font-bold">{family ? "Family" : (person?.name ?? "Someone")}</h3>
                         <span className="tnum text-[14px] text-muted">
                           {given}/{gs.length}
                         </span>
@@ -94,6 +100,7 @@ export default function WrappingPage() {
                             key={g.id}
                             g={g}
                             from={giversLabel(g.giverIds, map)}
+                            forLabel={isShared(g) ? recipientLabel(g, map) : null}
                             onToggle={() => (g.status === "given" ? setStatus(g, "wrapped", "Unchecked") : setStatus(g, "given", "Given"))}
                           />
                         ))}
@@ -129,15 +136,15 @@ function Progress({ label, done, of, color }: { label: string; done: number; of:
   );
 }
 
-function WrapRow({ g, person, map, onWrap }: { g: Gift; person: Person | undefined; map: Map<number, Person>; onWrap: () => void }) {
+function WrapRow({ g, map, onWrap }: { g: Gift; map: Map<number, Person>; onWrap: () => void }) {
   const from = giversLabel(g.giverIds, map);
   return (
     <li className="flex items-center gap-2 py-2 pl-4 pr-2">
-      <span className="h-9 w-1.5 shrink-0 rounded-full" style={{ background: person?.color || "var(--line)" }} aria-hidden="true" />
+      <span className="h-9 w-1.5 shrink-0 rounded-full" style={{ background: recipientColor(g, map) }} aria-hidden="true" />
       <Link to={`/gifts/${g.id}`} className="min-w-0 flex-1 py-1">
         <span className="block truncate font-semibold">{g.title}</span>
         <span className="block truncate text-[14px] text-muted">
-          For {person?.name ?? "someone"}
+          For {recipientLabel(g, map, { family: "the family" })}
           {from && ` · From ${from}`}
         </span>
       </Link>
@@ -146,7 +153,7 @@ function WrapRow({ g, person, map, onWrap }: { g: Gift; person: Person | undefin
   );
 }
 
-function TreeRow({ g, from, onToggle }: { g: Gift; from: string; onToggle: () => void }) {
+function TreeRow({ g, from, forLabel = null, onToggle }: { g: Gift; from: string; forLabel?: string | null; onToggle: () => void }) {
   const given = g.status === "given";
   return (
     <li>
@@ -166,7 +173,10 @@ function TreeRow({ g, from, onToggle }: { g: Gift; from: string; onToggle: () =>
         </span>
         <span className="min-w-0 flex-1">
           <span className={`block truncate font-semibold ${given ? "text-muted line-through decoration-2" : ""}`}>{g.title}</span>
-          <span className="block truncate text-[14px] text-muted">{from ? `From: ${from}` : "From: (no tag yet)"}</span>
+          <span className="block truncate text-[14px] text-muted">
+            {forLabel && `for ${forLabel} · `}
+            {from ? `From: ${from}` : "From: (no tag yet)"}
+          </span>
         </span>
         {!given && <span className="shrink-0 text-[14px] font-semibold text-st-given">Given</span>}
       </button>

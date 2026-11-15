@@ -54,7 +54,8 @@ let nid = 1;
 const G = (extra: Partial<Gift>): Gift => ({
   id: nid++,
   seasonId: 1,
-  recipientId: 1,
+  recipientIds: [1],
+  isFamily: false,
   title: "Gift",
   description: null,
   url: null,
@@ -171,8 +172,8 @@ describe("similar hint", () => {
     expect(normalizeTitle("  LEGO®  Set!! (Big) ")).toBe("lego set big");
     expect(canCheckSimilar("Lego")).toBe(true);
     expect(canCheckSimilar("a.b!")).toBe(false);
-    expect(similarQueryString({ recipientId: 4, title: "LEGO & co", excludeId: 9 })).toBe("?recipientId=4&title=LEGO+%26+co&excludeId=9");
-    expect(similarQueryString({ recipientId: 4, title: "Lego", seasonId: 3 })).toBe("?recipientId=4&title=Lego&seasonId=3");
+    expect(similarQueryString({ recipientIds: [4, 7], title: "LEGO & co", excludeId: 9 })).toBe("?recipientIds=4%2C7&title=LEGO+%26+co&excludeId=9");
+    expect(similarQueryString({ recipientIds: [4], title: "Lego", seasonId: 3 })).toBe("?recipientIds=4&title=Lego&seasonId=3");
   });
   it("groups history by year", () => {
     const h = [{ season: S(3, "birthday", { date: "2026-03-01" }) }, { season: S(2, "christmas", { date: "2025-12-25" }) }, { season: S(1, "birthday", { date: "2025-03-01" }) }, { season: S(0, "other", { date: null, name: "Old" }) }];
@@ -183,17 +184,17 @@ describe("similar hint", () => {
 describe("name draw", () => {
   it("marks a pair done only for a matching gift in this season", () => {
     const pair = { giverId: 4, recipientId: 5 };
-    expect(pairHasGift(pair, [G({ recipientId: 5, giverIds: [4, 6] })], 1)).toBe(true);
-    expect(pairHasGift(pair, [G({ recipientId: 5, giverIds: [6] })], 1)).toBe(false);
-    expect(pairHasGift(pair, [G({ recipientId: 4, giverIds: [5] })], 1)).toBe(false);
-    expect(pairHasGift(pair, [G({ recipientId: 5, giverIds: [4], seasonId: 2 })], 1)).toBe(false);
-    expect(pairHasGift(pair, [G({ recipientId: 5, giverIds: [4], status: "returned" })], 1)).toBe(false);
+    expect(pairHasGift(pair, [G({ recipientIds: [5], giverIds: [4, 6] })], 1)).toBe(true);
+    expect(pairHasGift(pair, [G({ recipientIds: [5], giverIds: [6] })], 1)).toBe(false);
+    expect(pairHasGift(pair, [G({ recipientIds: [4], giverIds: [5] })], 1)).toBe(false);
+    expect(pairHasGift(pair, [G({ recipientIds: [5], giverIds: [4], seasonId: 2 })], 1)).toBe(false);
+    expect(pairHasGift(pair, [G({ recipientIds: [5], giverIds: [4], status: "returned" })], 1)).toBe(false);
     expect(pairHasGift(pair, [], 1)).toBe(false);
   });
   it("preselects kids and prefills the gift link", () => {
     const people = [P(1, "Mom", "parent"), P(4, "Emma", "kid"), P(5, "Noah", "kid", { archived: true }), P(6, "Lily", "kid"), P(3, "Santa", "kid", { giverOnly: true })];
     expect(defaultDrawParticipants(people)).toEqual([4, 6]);
-    expect(drawGiftHref({ giverId: 4, recipientId: 6 })).toBe("/gifts/new?recipient=6&from=4");
+    expect(drawGiftHref({ giverId: 4, recipientId: 6 })).toBe("/gifts/new?recipientIds=6&from=4");
   });
   it("accepts both draw response shapes", () => {
     expect(toDrawResult([{ giverId: 1, recipientId: 2 }])).toEqual({ pairs: [{ giverId: 1, recipientId: 2 }] });

@@ -3,6 +3,7 @@
 import type { DrawPair, Gift, Person, Season, SimilarGift } from "../api";
 import { ApiError } from "../api";
 import { daysUntil, formatCents, todayISO } from "./format";
+import { giftRecipientIds } from "./recipients";
 
 // ---------- "Given before" ----------
 
@@ -157,7 +158,7 @@ export const showFairness = (season: Pick<Season, "kind"> | undefined) => season
 /** True once a gift in this season goes from the pair's giver to their recipient (returned gifts don't count). */
 export function pairHasGift(pair: DrawPair, gifts: Gift[], seasonId: number | undefined): boolean {
   return gifts.some(
-    (g) => g.seasonId === seasonId && g.recipientId === pair.recipientId && g.status !== "returned" && g.giverIds.includes(pair.giverId),
+    (g) => g.seasonId === seasonId && giftRecipientIds(g).includes(pair.recipientId) && g.status !== "returned" && g.giverIds.includes(pair.giverId),
   );
 }
 
@@ -167,7 +168,7 @@ export function defaultDrawParticipants(people: Person[]): number[] {
 }
 
 /** Link that opens the gift form prefilled for a draw pair. */
-export const drawGiftHref = (p: DrawPair) => `/gifts/new?recipient=${p.recipientId}&from=${p.giverId}`;
+export const drawGiftHref = (p: DrawPair) => `/gifts/new?recipientIds=${p.recipientId}&from=${p.giverId}`;
 
 // ---------- Price watch ----------
 

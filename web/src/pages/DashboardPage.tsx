@@ -6,6 +6,7 @@ import { useActivity, usePeople, usePeopleMap, useDashboard } from "../lib/queri
 import { ActivityRow } from "../components/Activity";
 import { useSeason } from "../lib/season";
 import { honoreeFirst, showFairness } from "../lib/phase3";
+import { recipientLabel, type RecipientsLike } from "../lib/recipients";
 import { AllocationLine, EmptyState, ErrorNote, Loading, MoneyBar, PageHeader, PersonBadge, statusVar } from "../components/ui";
 import { IconChevronRight } from "../components/Icons";
 
@@ -50,6 +51,7 @@ export default function DashboardPage() {
           <div className="min-w-0 space-y-5">
             {kids.length === 0 ? <AddPeoplePrompt /> : showFairness(dash.data.season ?? season) && <Fairness d={dash.data} map={map} />}
             <PeopleCards d={dash.data} map={map} />
+            {dash.data.family && <FamilyCard f={dash.data.family} />}
           </div>
         </div>
       )}
@@ -244,10 +246,48 @@ function PersonCard({ r, person, honoree = false }: { r: DashboardPerson; person
   );
 }
 
+/** Phase 3C: family gifts count toward no person; they have their own budget. */
+function FamilyCard({ f }: { f: NonNullable<Dashboard["family"]> }) {
+  const used = f.spentCents + f.committedCents;
+  return (
+    <Link to="/gifts?recipient=family" className="card block p-4 transition-colors hover:border-pine">
+      <div className="flex items-center gap-3">
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold-soft text-[18px]"
+          aria-hidden="true"
+        >
+          🏠
+        </span>
+        <div className="min-w-0 flex-1">
+          <span className="truncate font-bold">Family</span>
+          <div className="tnum text-[15px] text-muted">
+            <b className="text-ink">{formatCents(used, { round: true })}</b>
+            {f.budgetCents > 0 ? ` of ${formatCents(f.budgetCents, { round: true })}` : " · no budget set"}
+          </div>
+        </div>
+        <IconChevronRight className="text-muted" size={20} />
+      </div>
+      {f.budgetCents > 0 && <MoneyBar spent={f.spentCents} committed={f.committedCents} budget={f.budgetCents} className="mt-3" />}
+      <div className="mt-3 text-[13px] text-muted">
+        {f.giftCount === 0 ? (
+          "No family gifts yet"
+        ) : (
+          <>
+            <span className="tnum font-semibold text-ink">{f.giftCount}</span> {f.giftCount === 1 ? "gift" : "gifts"} for everyone · never a surprise
+          </>
+        )}
+      </div>
+    </Link>
+  );
+}
+
 function Attention({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
   const a = d.attention;
   const total = a.returnsSoon.length + a.orderedNotReceived.length + a.receivedNotWrapped.length;
-  const name = (id: number) => map.get(id)?.name ?? "Someone";
+  const name = (g: RecipientsLike) => {
+    const l = recipientLabel(g, map);
+    return l === "Unknown" ? "Someone" : l;
+  };
   return (
     <section className="card" aria-labelledby="att-h">
       <div className="flex items-baseline justify-between px-5 pb-2 pt-5">
@@ -267,7 +307,7 @@ function Attention({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
                     key={`r${g.giftId}`}
                     to={`/gifts/${g.giftId}`}
                     title={g.title}
-                    meta={`${name(g.recipientId)} · ${returnPhrase(g.returnBy)}`}
+                    meta={`${name(g)} · ${returnPhrase(g.returnBy)}`}
                     tone={g.level}
                   />
                 ))}
@@ -276,14 +316,14 @@ function Attention({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
           {a.orderedNotReceived.length > 0 && (
             <Group title="Ordered, not here yet">
               {a.orderedNotReceived.map((g) => (
-                <Row key={`o${g.giftId}`} to={`/gifts/${g.giftId}`} title={g.title} meta={[name(g.recipientId), g.store].filter(Boolean).join(" · ")} dot="var(--st-ordered)" />
+                <Row key={`o${g.giftId}`} to={`/gifts/${g.giftId}`} title={g.title} meta={[name(g), g.store].filter(Boolean).join(" · ")} dot="var(--st-ordered)" />
               ))}
             </Group>
           )}
           {a.receivedNotWrapped.length > 0 && (
             <Group title="Here, not wrapped">
               {a.receivedNotWrapped.map((g) => (
-                <Row key={`w${g.giftId}`} to={`/gifts/${g.giftId}`} title={g.title} meta={name(g.recipientId)} dot="var(--st-received)" />
+                <Row key={`w${g.giftId}`} to={`/gifts/${g.giftId}`} title={g.title} meta={name(g)} dot="var(--st-received)" />
               ))}
             </Group>
           )}

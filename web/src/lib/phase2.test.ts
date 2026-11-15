@@ -27,7 +27,8 @@ let nextId = 1;
 const G = (extra: Partial<Gift>): Gift => ({
   id: nextId++,
   seasonId: 1,
-  recipientId: 1,
+  recipientIds: [1],
+  isFamily: false,
   title: "Gift",
   description: null,
   url: null,
@@ -59,14 +60,14 @@ const people = [
   P(6, "Old kid", "kid", { archived: true }),
 ];
 const names = new Map(people.map((p) => [p.id, p.name]));
-const nameOf = (id: number) => names.get(id) ?? "";
+const nameOf = (g: Gift) => names.get(g.recipientIds[0]) ?? "";
 
 describe("shopping list grouping", () => {
   it("groups by store case-insensitively with Anywhere last and subtotals", () => {
     const gifts = [
-      G({ title: "Socks", store: "Target", estPriceCents: 500, recipientId: 5 }),
+      G({ title: "Socks", store: "Target", estPriceCents: 500, recipientIds: [5] }),
       G({ title: "Book", store: null, estPriceCents: 1200 }),
-      G({ title: "Lego", store: " target ", estPriceCents: 4000, actualPriceCents: 3500, recipientId: 4 }),
+      G({ title: "Lego", store: " target ", estPriceCents: 4000, actualPriceCents: 3500, recipientIds: [4] }),
       G({ title: "Kite", store: "Amazon", estPriceCents: null }),
       G({ title: "Mug", store: "  ", estPriceCents: 800 }),
     ];
@@ -87,10 +88,10 @@ describe("shopping list grouping", () => {
 describe("wrapping", () => {
   it("counts progress and groups by recipient in people order", () => {
     const gifts = [
-      G({ status: "received", recipientId: 5 }),
-      G({ status: "wrapped", recipientId: 5, title: "B" }),
-      G({ status: "given", recipientId: 4, title: "A" }),
-      G({ status: "planned", recipientId: 4 }),
+      G({ status: "received", recipientIds: [5] }),
+      G({ status: "wrapped", recipientIds: [5], title: "B" }),
+      G({ status: "given", recipientIds: [4], title: "A" }),
+      G({ status: "planned", recipientIds: [4] }),
     ];
     expect(wrapProgress(gifts)).toEqual({ toWrap: 1, wrapped: 1, given: 1, here: 3 });
     expect(groupByRecipient(gifts, [4, 5]).map((g) => g.recipientId)).toEqual([4, 5]);
@@ -105,14 +106,14 @@ describe("givers matrix", () => {
   });
 
   it("puts a gift in every giver row it lists, never on the diagonal, ignoring returned gifts", () => {
-    const shared = G({ title: "Mug", recipientId: 1, giverIds: [4, 5] });
+    const shared = G({ title: "Mug", recipientIds: [1], giverIds: [4, 5] });
     const gifts = [
       shared,
-      G({ title: "Card", recipientId: 2, giverIds: [4] }),
-      G({ title: "Self", recipientId: 4, giverIds: [4] }),
-      G({ title: "Returned", recipientId: 5, giverIds: [4], status: "returned" }),
-      G({ title: "From Santa", recipientId: 5, giverIds: [3] }),
-      G({ title: "To Santa?", recipientId: 3, giverIds: [4] }),
+      G({ title: "Card", recipientIds: [2], giverIds: [4] }),
+      G({ title: "Self", recipientIds: [4], giverIds: [4] }),
+      G({ title: "Returned", recipientIds: [5], giverIds: [4], status: "returned" }),
+      G({ title: "From Santa", recipientIds: [5], giverIds: [3] }),
+      G({ title: "To Santa?", recipientIds: [3], giverIds: [4] }),
     ];
     const m = buildGiversMatrix(gifts, people);
     expect(m.cells.get(cellKey(4, 1))).toEqual([shared]);
@@ -129,9 +130,9 @@ describe("givers matrix", () => {
 });
 
 describe("gifts table sort", () => {
-  const a = G({ title: "banana", recipientId: 5, status: "wrapped", estPriceCents: 300, store: "Zed" });
-  const b = G({ title: "Apple", recipientId: 4, status: "idea", estPriceCents: 900, store: "" });
-  const c = G({ title: "cherry", recipientId: 1, status: "ordered", actualPriceCents: 100, store: "amazon" });
+  const a = G({ title: "banana", recipientIds: [5], status: "wrapped", estPriceCents: 300, store: "Zed" });
+  const b = G({ title: "Apple", recipientIds: [4], status: "idea", estPriceCents: 900, store: "" });
+  const c = G({ title: "cherry", recipientIds: [1], status: "ordered", actualPriceCents: 100, store: "amazon" });
   const list = [a, b, c];
   it("sorts by each column, both directions", () => {
     expect(sortGifts(list, "title", "asc", nameOf)).toEqual([b, a, c]);
