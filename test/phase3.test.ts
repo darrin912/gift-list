@@ -36,7 +36,7 @@ function productPage(price: string): Response {
 describe("serializers", () => {
   it("Gift and Season JSON include the phase 3 fields", async () => {
     const { dad, kid, season, gift } = await setup();
-    const g = await gift(dad, { title: "Robot", recipientId: kid.id, seasonId: season.id, url: "https://shop.example.com/r", watchPrice: true });
+    const g = await gift(dad, { title: "Robot", recipientIds: [kid.id], seasonId: season.id, url: "https://shop.example.com/r", watchPrice: true });
     expect(g).toMatchObject({ watchPrice: true, lastSeenPriceCents: null, lowestSeenPriceCents: null, lastCheckedAt: null, priceDroppedAt: null });
     const fetched = (await call(`/gifts/${g.id}`, { cookie: dad.cookie })).body;
     expect(fetched.watchPrice).toBe(true);
@@ -50,11 +50,11 @@ describe("history", () => {
   it("groups by season (newest first), skips the active season and the inbox, and applies the surprise rule", async () => {
     const { mom, dad, kid, season, past, older, gift } = await setup();
     const active = (await call("/seasons", { method: "POST", cookie: dad.cookie, body: { name: `Active ${mom.personId}`, date: addDays(today, 10), isActive: true } })).body;
-    const a = await gift(dad, { title: "Bike", recipientId: kid.id, seasonId: past.id });
-    const b = await gift(dad, { title: "Kite", recipientId: kid.id, seasonId: older.id });
-    await gift(dad, { title: "Inbox idea", recipientId: kid.id });
-    await gift(dad, { title: "Active one", recipientId: kid.id, seasonId: active.id });
-    const future = await gift(dad, { title: "Future", recipientId: kid.id, seasonId: season.id });
+    const a = await gift(dad, { title: "Bike", recipientIds: [kid.id], seasonId: past.id });
+    const b = await gift(dad, { title: "Kite", recipientIds: [kid.id], seasonId: older.id });
+    await gift(dad, { title: "Inbox idea", recipientIds: [kid.id] });
+    await gift(dad, { title: "Active one", recipientIds: [kid.id], seasonId: active.id });
+    const future = await gift(dad, { title: "Future", recipientIds: [kid.id], seasonId: season.id });
 
     const res = await call(`/history?personId=${kid.id}`, { cookie: mom.cookie });
     expect(res.status).toBe(200);
@@ -65,8 +65,8 @@ describe("history", () => {
     expect(res.body[1].season).toMatchObject({ name: past.name, honoreeId: null });
 
     // Surprise rule: Mom sees her past gifts, never her live-season ones.
-    const momPast = await gift(dad, { title: "Scarf", recipientId: mom.personId, seasonId: past.id });
-    await gift(dad, { title: "Necklace", recipientId: mom.personId, seasonId: season.id });
+    const momPast = await gift(dad, { title: "Scarf", recipientIds: [mom.personId], seasonId: past.id });
+    await gift(dad, { title: "Necklace", recipientIds: [mom.personId], seasonId: season.id });
     const asMom = (await call(`/history?personId=${mom.personId}`, { cookie: mom.cookie })).body;
     expect(asMom.map((h: any) => h.season.id)).toEqual([past.id]);
     expect(asMom[0].gifts.map((g: any) => g.id)).toEqual([momPast.id]);
@@ -82,41 +82,41 @@ describe("history", () => {
 describe("similar gifts", () => {
   it("finds the same recipient's similar gifts in other seasons", async () => {
     const { mom, dad, kid, season, past, older, gift } = await setup();
-    const lego = await gift(dad, { title: "LEGO Set!", recipientId: kid.id, seasonId: past.id, status: "given" });
-    await gift(dad, { title: "lego set", recipientId: kid.id, seasonId: older.id, status: "returned" }); // returned: excluded
-    await gift(dad, { title: "LEGO set", recipientId: kid.id, seasonId: older.id, status: "idea" }); // idea: excluded
-    const big = await gift(dad, { title: "Big LEGO Set Deluxe", recipientId: kid.id, seasonId: older.id, status: "wrapped" });
-    await gift(dad, { title: "LEGO Set", recipientId: kid.id, status: "planned" }); // inbox: excluded
-    const current = await gift(dad, { title: "Lego set", recipientId: kid.id, seasonId: season.id, status: "planned" });
-    await gift(dad, { title: "LEGO Set", recipientId: mom.personId, seasonId: past.id, status: "given" }); // other recipient
+    const lego = await gift(dad, { title: "LEGO Set!", recipientIds: [kid.id], seasonId: past.id, status: "given" });
+    await gift(dad, { title: "lego set", recipientIds: [kid.id], seasonId: older.id, status: "returned" }); // returned: excluded
+    await gift(dad, { title: "LEGO set", recipientIds: [kid.id], seasonId: older.id, status: "idea" }); // idea: excluded
+    const big = await gift(dad, { title: "Big LEGO Set Deluxe", recipientIds: [kid.id], seasonId: older.id, status: "wrapped" });
+    await gift(dad, { title: "LEGO Set", recipientIds: [kid.id], status: "planned" }); // inbox: excluded
+    const current = await gift(dad, { title: "Lego set", recipientIds: [kid.id], seasonId: season.id, status: "planned" });
+    await gift(dad, { title: "LEGO Set", recipientIds: [mom.personId], seasonId: past.id, status: "given" }); // other recipient
 
     const q = (params: string, who = dad) => call(`/gifts/similar?${params}`, { cookie: who.cookie });
-    const res = await q(`recipientId=${kid.id}&title=${encodeURIComponent("lego  SET")}&seasonId=${season.id}`);
+    const res = await q(`recipientIds=${kid.id}&title=${encodeURIComponent("lego  SET")}&seasonId=${season.id}`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([
       { giftId: lego.id, title: "LEGO Set!", seasonName: past.name, seasonDate: past.date, status: "given" },
       { giftId: big.id, title: "Big LEGO Set Deluxe", seasonName: older.name, seasonDate: older.date, status: "wrapped" },
     ]);
     // excludeId: the current gift's own season is "this season".
-    const viaExclude = await q(`recipientId=${kid.id}&title=Lego%20set&excludeId=${current.id}`);
+    const viaExclude = await q(`recipientIds=${kid.id}&title=Lego%20set&excludeId=${current.id}`);
     expect(viaExclude.body.map((m: any) => m.giftId)).toEqual([lego.id, big.id]);
     // Too short to match.
-    expect((await q(`recipientId=${kid.id}&title=Leg&seasonId=${season.id}`)).body).toEqual([]);
+    expect((await q(`recipientIds=${kid.id}&title=Leg&seasonId=${season.id}`)).body).toEqual([]);
     expect((await q(`title=x`)).status).toBe(400);
   });
 
   it("respects the surprise rule and the 5-result cap", async () => {
     const { mom, dad, season, past, gift } = await setup();
     const future = (await call("/seasons", { method: "POST", cookie: dad.cookie, body: { name: `Bday ${mom.personId}`, kind: "other", date: addDays(today, 60) } })).body;
-    await gift(dad, { title: "Perfume", recipientId: mom.personId, seasonId: future.id, status: "ordered" }); // live: hidden from Mom
-    const old = await gift(dad, { title: "Perfume", recipientId: mom.personId, seasonId: past.id, status: "given" });
-    const asMom = (await call(`/gifts/similar?recipientId=${mom.personId}&title=perfume&seasonId=${season.id}`, { cookie: mom.cookie })).body;
+    await gift(dad, { title: "Perfume", recipientIds: [mom.personId], seasonId: future.id, status: "ordered" }); // live: hidden from Mom
+    const old = await gift(dad, { title: "Perfume", recipientIds: [mom.personId], seasonId: past.id, status: "given" });
+    const asMom = (await call(`/gifts/similar?recipientIds=${mom.personId}&title=perfume&seasonId=${season.id}`, { cookie: mom.cookie })).body;
     expect(asMom.map((m: any) => m.giftId)).toEqual([old.id]);
-    const asDad = (await call(`/gifts/similar?recipientId=${mom.personId}&title=perfume&seasonId=${season.id}`, { cookie: dad.cookie })).body;
+    const asDad = (await call(`/gifts/similar?recipientIds=${mom.personId}&title=perfume&seasonId=${season.id}`, { cookie: dad.cookie })).body;
     expect(asDad).toHaveLength(2);
 
-    for (let i = 0; i < 7; i++) await gift(dad, { title: `Book ${i} box`, recipientId: mom.personId, seasonId: past.id, status: "given" });
-    const capped = (await call(`/gifts/similar?recipientId=${mom.personId}&title=book&seasonId=${season.id}`, { cookie: dad.cookie })).body;
+    for (let i = 0; i < 7; i++) await gift(dad, { title: `Book ${i} box`, recipientIds: [mom.personId], seasonId: past.id, status: "given" });
+    const capped = (await call(`/gifts/similar?recipientIds=${mom.personId}&title=book&seasonId=${season.id}`, { cookie: dad.cookie })).body;
     expect(capped).toHaveLength(5);
   });
 });
@@ -209,7 +209,7 @@ describe("price watch", () => {
     const { mom, dad, season, gift } = await setup();
     const g = await gift(dad, {
       title: "Headphones",
-      recipientId: mom.personId,
+      recipientIds: [mom.personId],
       seasonId: season.id,
       url: "https://shop.example.com/headphones",
       estPriceCents: 5999,
@@ -252,12 +252,12 @@ describe("price watch", () => {
   it("first check without an estimate is not a drop; 400 without a URL; 10 per user per minute", async () => {
     const { dad, kid, season, gift } = await setup();
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => productPage("19.99"));
-    const g = await gift(dad, { title: "Puzzle", recipientId: kid.id, seasonId: season.id, url: "https://shop.example.com/p" });
+    const g = await gift(dad, { title: "Puzzle", recipientIds: [kid.id], seasonId: season.id, url: "https://shop.example.com/p" });
     const first = (await call(`/gifts/${g.id}/check-price`, { method: "POST", cookie: dad.cookie })).body;
     expect(first).toMatchObject({ lastSeenPriceCents: 1999, priceDroppedAt: null });
-    const noUrl = await gift(dad, { title: "No link", recipientId: kid.id, seasonId: season.id });
+    const noUrl = await gift(dad, { title: "No link", recipientIds: [kid.id], seasonId: season.id });
     expect((await call(`/gifts/${noUrl.id}/check-price`, { method: "POST", cookie: dad.cookie })).status).toBe(400);
-    const bad = await gift(dad, { title: "Local", recipientId: kid.id, seasonId: season.id, url: "http://127.0.0.1/x" });
+    const bad = await gift(dad, { title: "Local", recipientIds: [kid.id], seasonId: season.id, url: "http://127.0.0.1/x" });
     expect((await call(`/gifts/${bad.id}/check-price`, { method: "POST", cookie: dad.cookie })).status).toBe(400);
     for (let i = 0; i < 9; i++) expect((await call(`/gifts/${g.id}/check-price`, { method: "POST", cookie: dad.cookie })).status).toBe(200);
     const limited = await call(`/gifts/${g.id}/check-price`, { method: "POST", cookie: dad.cookie });
@@ -270,13 +270,13 @@ describe("price watch", () => {
     const mine: { id: number; url: string }[] = [];
     for (let i = 0; i < 30; i++) {
       const url = `https://shop.example.com/item/${i}`;
-      mine.push({ id: (await gift(dad, { title: `Item ${i}`, recipientId: kid.id, seasonId: season.id, url, estPriceCents: 10000, watchPrice: true, status: i % 2 ? "idea" : "planned" })).id, url });
+      mine.push({ id: (await gift(dad, { title: `Item ${i}`, recipientIds: [kid.id], seasonId: season.id, url, estPriceCents: 10000, watchPrice: true, status: i % 2 ? "idea" : "planned" })).id, url });
     }
     // Not eligible: not watched, no URL, wrong status.
     const skipped = [
-      await gift(dad, { title: "Unwatched", recipientId: kid.id, url: "https://shop.example.com/u", status: "idea" }),
-      await gift(dad, { title: "No URL", recipientId: kid.id, watchPrice: true, status: "idea" }),
-      await gift(dad, { title: "Ordered", recipientId: kid.id, url: "https://shop.example.com/o", watchPrice: true, status: "ordered" }),
+      await gift(dad, { title: "Unwatched", recipientIds: [kid.id], url: "https://shop.example.com/u", status: "idea" }),
+      await gift(dad, { title: "No URL", recipientIds: [kid.id], watchPrice: true, status: "idea" }),
+      await gift(dad, { title: "Ordered", recipientIds: [kid.id], url: "https://shop.example.com/o", watchPrice: true, status: "ordered" }),
     ];
     // Isolate from other tests' watched gifts.
     const ids = mine.map((m) => m.id);

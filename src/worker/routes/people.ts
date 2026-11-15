@@ -1,6 +1,6 @@
 import { asc, eq, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { exchangeDraws, giftGivers, gifts, people, seasons, users } from "../../db/schema";
+import { exchangeDraws, giftGivers, giftRecipients, people, seasons, users } from "../../db/schema";
 import { fail, idParam, notFound, parseJson } from "../http";
 import { toPerson } from "../serialize";
 import type { AppEnv } from "../types";
@@ -30,7 +30,12 @@ peopleRoutes.patch("/:id", async (c) => {
   const body = await parseJson(c, personPatch);
   const db = c.var.db;
   if (body.giverOnly) {
-    const received = await db.select({ id: gifts.id }).from(gifts).where(eq(gifts.recipientId, id)).limit(1).get();
+    const received = await db
+      .select({ id: giftRecipients.giftId })
+      .from(giftRecipients)
+      .where(eq(giftRecipients.personId, id))
+      .limit(1)
+      .get();
     if (received) fail(409, "This person already receives gifts, so they can't be giver-only");
   }
   const row =
@@ -50,10 +55,10 @@ peopleRoutes.delete("/:id", async (c) => {
   const linked = await db.select({ id: users.id }).from(users).where(eq(users.personId, id)).get();
   if (linked) fail(409, "This person is linked to a login and can't be deleted");
 
-  // "Has gifts" = is the recipient of any gift or a giver on any gift.
+  // "Has gifts" = is a recipient of any gift (alone or shared) or a giver on any gift.
   // Also archived (not deleted) when a name draw or a season's honoree refers to them.
   const [asRecipient, asGiver, inDraw, asHonoree] = await Promise.all([
-    db.select({ id: gifts.id }).from(gifts).where(eq(gifts.recipientId, id)).limit(1).get(),
+    db.select({ id: giftRecipients.giftId }).from(giftRecipients).where(eq(giftRecipients.personId, id)).limit(1).get(),
     db.select({ id: giftGivers.giftId }).from(giftGivers).where(eq(giftGivers.personId, id)).limit(1).get(),
     db
       .select({ id: exchangeDraws.seasonId })

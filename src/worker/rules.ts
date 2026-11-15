@@ -77,6 +77,39 @@ export function remainingCents(budgetCents: number, t: Pick<MoneyTotals, "spentC
   return budgetCents - t.spentCents - t.committedCents;
 }
 
+/**
+ * Splits `priceCents` evenly between `personIds`: each gets floor(price / n), and the remainder
+ * cents go one each to the people in ascending id order, so the shares always add up to the price.
+ * 1000 between [3, 1, 2] -> {1: 334, 2: 333, 3: 333}.
+ */
+export function splitCents(priceCents: number, personIds: readonly number[]): Map<number, number> {
+  const ids = [...new Set(personIds)].sort((a, b) => a - b);
+  const out = new Map<number, number>();
+  if (ids.length === 0) return out;
+  const base = Math.floor(priceCents / ids.length);
+  const remainder = priceCents - base * ids.length;
+  ids.forEach((id, i) => out.set(id, base + (i < remainder ? 1 : 0)));
+  return out;
+}
+
+/** One person's share of the money rules: their split of each gift they receive, each gift counted once. */
+export function sumMoneyFor(
+  gifts: readonly (PricedGift & Pick<GiftRecipients, "recipientIds">)[],
+  personId: number,
+): MoneyTotals {
+  let spentCents = 0;
+  let committedCents = 0;
+  let giftCount = 0;
+  for (const g of gifts) {
+    if (!g.recipientIds.includes(personId)) continue;
+    const share = splitCents(effectivePriceCents(g), g.recipientIds).get(personId) ?? 0;
+    if (isSpent(g.status)) spentCents += share;
+    else if (isCommitted(g.status)) committedCents += share;
+    if (isCounted(g.status)) giftCount++;
+  }
+  return { spentCents, committedCents, giftCount };
+}
+
 export function emptyStatusCounts(): Record<GiftStatus, number> {
   return Object.fromEntries(GIFT_STATUSES.map((s) => [s, 0])) as Record<GiftStatus, number>;
 }
@@ -102,18 +135,27 @@ export interface SeasonForRule {
   archived: boolean;
 }
 
+/** Who a gift is for, as the surprise rule and the money rules see it. */
+export interface GiftRecipients {
+  /** Distinct person ids; empty for family gifts. */
+  recipientIds: readonly number[];
+  isFamily: boolean;
+}
+
 /**
- * A gift is hidden from the signed-in user when it's for the user's own person and
- * its season is neither archived nor past (season date < today). Ideas-inbox gifts
- * (no season) are always hidden from their recipient.
+ * A non-family gift is hidden from the signed-in user when the user's own person is among its
+ * recipients and its season is neither archived nor past (season date < today). Ideas-inbox gifts
+ * (no season) count as never past, so they're always hidden from their recipients.
+ * Family gifts are never hidden.
  */
 export function isGiftHidden(
-  gift: { recipientId: number },
+  gift: GiftRecipients,
   season: SeasonForRule | null,
   viewerPersonId: number | null,
   today: string,
 ): boolean {
-  if (viewerPersonId == null || gift.recipientId !== viewerPersonId) return false;
+  if (gift.isFamily) return false;
+  if (viewerPersonId == null || !gift.recipientIds.includes(viewerPersonId)) return false;
   if (!season) return true;
   if (season.archived) return false;
   return season.date >= today;

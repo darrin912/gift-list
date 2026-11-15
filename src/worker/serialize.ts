@@ -1,8 +1,9 @@
-import type { GiftRow, PersonRow, SeasonRow } from "../db/schema";
+import type { PersonRow, SeasonRow } from "../db/schema";
+import type { GiftWithRecipients } from "./gift-access";
 
 export type ApiPerson = PersonRow;
 export type ApiSeason = SeasonRow;
-export type ApiGift = GiftRow & { giverIds: number[] };
+export type ApiGift = GiftWithRecipients & { giverIds: number[] };
 
 // Drizzle already maps columns to the API's camelCase names; these are explicit so
 // the wire shape is obvious and doesn't silently change with the schema.
@@ -35,14 +36,16 @@ export function toSeason(s: SeasonRow): ApiSeason {
     isActive: s.isActive,
     archived: s.archived,
     honoreeId: s.honoreeId ?? null,
+    familyBudgetCents: s.familyBudgetCents ?? 0,
   };
 }
 
-export function toGift(g: GiftRow, giverIds: number[]): ApiGift {
+export function toGift(g: GiftWithRecipients, giverIds: number[]): ApiGift {
   return {
     id: g.id,
     seasonId: g.seasonId,
-    recipientId: g.recipientId,
+    recipientIds: g.isFamily ? [] : [...g.recipientIds].sort((a, b) => a - b),
+    isFamily: g.isFamily,
     title: g.title,
     description: g.description,
     url: g.url,

@@ -77,6 +77,7 @@ export const seasons = sqliteTable("seasons", {
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   /** Birthday (required) / anniversary / other (optional): who the season is for. */
   honoreeId: integer("honoree_person_id").references(() => people.id),
+  familyBudgetCents: integer("family_budget_cents").notNull().default(0),
 });
 
 export const personBudgets = sqliteTable(
@@ -99,9 +100,6 @@ export const gifts = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     seasonId: integer("season_id").references(() => seasons.id, { onDelete: "set null" }),
-    recipientId: integer("recipient_id")
-      .notNull()
-      .references(() => people.id),
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
     url: text("url").notNull().default(""),
@@ -121,6 +119,8 @@ export const gifts = sqliteTable(
     lowestSeenPriceCents: integer("lowest_seen_price_cents"),
     lastCheckedAt: text("last_checked_at"),
     priceDroppedAt: text("price_dropped_at"),
+    /** A gift for the whole family: no recipients, never hidden by the surprise rule. */
+    isFamily: integer("is_family", { mode: "boolean" }).notNull().default(false),
     createdBy: integer("created_by").references(() => users.id),
     updatedBy: integer("updated_by").references(() => users.id),
     createdAt: text("created_at").notNull().default(nowIso),
@@ -128,7 +128,6 @@ export const gifts = sqliteTable(
   },
   (t) => [
     index("gifts_season_id_idx").on(t.seasonId),
-    index("gifts_recipient_id_idx").on(t.recipientId),
     index("gifts_price_watch_idx").on(t.watchPrice, t.lastCheckedAt),
   ],
 );
@@ -146,13 +145,30 @@ export const giftGivers = sqliteTable(
   (t) => [primaryKey({ columns: [t.giftId, t.personId] }), index("gift_givers_person_id_idx").on(t.personId)],
 );
 
+/** Who a gift is for (1–10 people); empty for family gifts. Replaces the retired gifts.recipient_id. */
+export const giftRecipients = sqliteTable(
+  "gift_recipients",
+  {
+    giftId: integer("gift_id")
+      .notNull()
+      .references(() => gifts.id, { onDelete: "cascade" }),
+    personId: integer("person_id")
+      .notNull()
+      .references(() => people.id),
+  },
+  (t) => [primaryKey({ columns: [t.giftId, t.personId] }), index("gift_recipients_person_id_idx").on(t.personId)],
+);
+
 export const activityLog = sqliteTable(
   "activity_log",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     userId: integer("user_id").references(() => users.id),
     giftId: integer("gift_id"), // not an FK: rows outlive deleted gifts
+    /** Legacy (pre-0006): the single recipient. New rows set it to the first recipient, or null. */
     recipientId: integer("recipient_id"),
+    /** JSON array of the gift's recipients when logged; [] for family gifts, null for rows not about one gift. */
+    recipientIds: text("recipient_ids", { mode: "json" }).$type<number[]>(),
     seasonId: integer("season_id"),
     action: text("action", { enum: ACTIVITY_ACTIONS }).notNull(),
     summary: text("summary").notNull(),

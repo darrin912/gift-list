@@ -3,6 +3,7 @@
 // POST /gifts/:id/check-price.
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { activityLog, gifts, type GiftRow, type GiftStatus } from "../db/schema";
+import { loadRecipientIds } from "./gift-access";
 import { checkFetchUrl, fetchLinkPreview } from "./link-preview";
 import { formatCents } from "./price";
 import { isPriceDrop } from "./rules";
@@ -65,14 +66,16 @@ export async function checkGiftPrice(
     const updated = await update.get();
     return { gift: updated ?? { ...gift, ...set }, priceCents, dropped };
   }
-  // System-attributed activity row; recipient/season are kept so the feed applies the surprise rule.
+  // System-attributed activity row; recipients/season are kept so the feed applies the surprise rule.
+  const recipientIds = gift.isFamily ? [] : await loadRecipientIds(db, gift.id);
   const [rows] = await db.batch([
     update,
     db.insert(activityLog).values({
       userId: null,
       systemActor: PRICE_WATCH_ACTOR,
       giftId: gift.id,
-      recipientId: gift.recipientId,
+      recipientId: recipientIds[0] ?? null,
+      recipientIds,
       seasonId: gift.seasonId,
       action: "update",
       summary: priceDropSummary(gift.title, reference!, priceCents),

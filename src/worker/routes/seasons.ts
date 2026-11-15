@@ -5,7 +5,7 @@ import { drawNames } from "../draw";
 import { fail, idParam, notFound, parseJson } from "../http";
 import { toSeason } from "../serialize";
 import type { AppEnv, Variables } from "../types";
-import { budgetPut, drawBody, seasonCreate, seasonPatch } from "../validation";
+import { budgetPut, drawBody, familyBudgetPut, seasonCreate, seasonPatch } from "../validation";
 
 type Db = Variables["db"];
 
@@ -122,6 +122,15 @@ seasonRoutes.put("/:id/budgets/:personId", async (c) => {
     })
     .get();
   return c.json(row);
+});
+
+/** PUT /seasons/:id/family-budget: the budget for family gifts; returns the updated Season. */
+seasonRoutes.put("/:id/family-budget", async (c) => {
+  const id = idParam(c);
+  const { budgetCents } = await parseJson(c, familyBudgetPut);
+  const row = await c.var.db.update(seasons).set({ familyBudgetCents: budgetCents }).where(eq(seasons.id, id)).returning().get();
+  if (!row) notFound("Season not found");
+  return c.json(toSeason(row));
 });
 
 // ---------------------------------------------------------------- kids' name draw

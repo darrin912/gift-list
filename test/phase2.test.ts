@@ -19,17 +19,17 @@ async function setup() {
 describe("activity feed", () => {
   it("writes readable summaries and hides rows about the viewer's surprises", async () => {
     const { mom, dad, kid, season, past, gift } = await setup();
-    const socks = (await gift(dad, { title: "Fuzzy socks", recipientId: kid.id, seasonId: season.id })).body;
+    const socks = (await gift(dad, { title: "Fuzzy socks", recipientIds: [kid.id], seasonId: season.id })).body;
     await call(`/gifts/${socks.id}`, { method: "PATCH", cookie: dad.cookie, body: { status: "wrapped" } });
     await call(`/gifts/${socks.id}`, { method: "PATCH", cookie: dad.cookie, body: { store: "Target", estPriceCents: 500 } });
     await call(`/gifts/${socks.id}`, { method: "PATCH", cookie: dad.cookie, body: { store: "Target" } }); // no-op: no row
-    const necklace = (await gift(dad, { title: "Necklace", recipientId: mom.personId, seasonId: season.id })).body;
+    const necklace = (await gift(dad, { title: "Necklace", recipientIds: [mom.personId], seasonId: season.id })).body;
     await call(`/gifts/${necklace.id}`, { method: "PATCH", cookie: dad.cookie, body: { status: "ordered" } });
-    const spa = (await gift(dad, { title: "Spa day", recipientId: mom.personId })).body; // ideas inbox: hidden
-    const scarf = (await gift(dad, { title: "Old scarf", recipientId: mom.personId, seasonId: past.id })).body; // past: visible
+    const spa = (await gift(dad, { title: "Spa day", recipientIds: [mom.personId] })).body; // ideas inbox: hidden
+    const scarf = (await gift(dad, { title: "Old scarf", recipientIds: [mom.personId], seasonId: past.id })).body; // past: visible
     // A gift first logged for the kid, then moved to Mom: its whole history is hidden from her now.
-    const moved = (await gift(dad, { title: "Perfume", recipientId: kid.id, seasonId: season.id })).body;
-    await call(`/gifts/${moved.id}`, { method: "PATCH", cookie: dad.cookie, body: { recipientId: mom.personId } });
+    const moved = (await gift(dad, { title: "Perfume", recipientIds: [kid.id], seasonId: season.id })).body;
+    await call(`/gifts/${moved.id}`, { method: "PATCH", cookie: dad.cookie, body: { recipientIds: [mom.personId] } });
     await call(`/gifts/${socks.id}`, { method: "DELETE", cookie: dad.cookie });
 
     const asDad = (await call(`/activity?seasonId=${season.id}`, { cookie: dad.cookie })).body as any[];
@@ -51,6 +51,7 @@ describe("activity feed", () => {
       summary: `Deleted "Fuzzy socks" for ${kid.name}`,
       giftId: socks.id,
       recipientId: kid.id,
+      recipientIds: [kid.id],
       seasonId: season.id,
       at: expect.any(String),
     });
@@ -82,8 +83,8 @@ describe("activity feed", () => {
 
   it("fills the limit even when many recent rows are hidden", async () => {
     const { mom, dad, kid, season, gift } = await setup();
-    await gift(dad, { title: "Visible", recipientId: kid.id, seasonId: season.id });
-    for (let i = 0; i < 60; i++) await gift(dad, { title: `Secret ${i}`, recipientId: mom.personId, seasonId: season.id });
+    await gift(dad, { title: "Visible", recipientIds: [kid.id], seasonId: season.id });
+    for (let i = 0; i < 60; i++) await gift(dad, { title: `Secret ${i}`, recipientIds: [mom.personId], seasonId: season.id });
     const feed = (await call(`/activity?limit=1&seasonId=${season.id}`, { cookie: mom.cookie })).body as any[];
     expect(feed.map((a) => a.summary)).toEqual([`Added "Visible" for ${kid.name}`]);
   });
@@ -138,7 +139,7 @@ describe("CSV export and import", () => {
     const { mom, dad, kid, season, gift } = await setup();
     await gift(dad, {
       title: "=HYPERLINK(\"http://evil\")",
-      recipientId: kid.id,
+      recipientIds: [kid.id],
       seasonId: season.id,
       status: "ordered",
       estPriceCents: 123456,
@@ -149,7 +150,7 @@ describe("CSV export and import", () => {
       wished: true,
       returnBy: "2030-01-02",
     });
-    await gift(dad, { title: "Secret ring", recipientId: mom.personId, seasonId: season.id });
+    await gift(dad, { title: "Secret ring", recipientIds: [mom.personId], seasonId: season.id });
 
     const res = await call(`/export.csv?seasonId=${season.id}`, { cookie: mom.cookie });
     expect(res.status).toBe(200);
@@ -204,17 +205,17 @@ describe("CSV export and import", () => {
     const list = (await call(`/gifts?seasonId=${season.id}`, { cookie: dad.cookie })).body as any[];
     const kite = list.find((g) => g.title === "Kite");
     expect(kite).toMatchObject({
-      recipientId: kid.id, estPriceCents: 123450, status: "ordered", category: "other", wished: true,
+      recipientIds: [kid.id], estPriceCents: 123450, status: "ordered", category: "other", wished: true,
       returnBy: "2026-12-24", description: "multi\nline", createdBy: mom.userId,
       giverIds: [dad.personId, mom.personId].sort((a, b) => a - b),
     });
     expect(list.find((g) => g.title === "=cmd")).toMatchObject({ status: "idea", category: "main", giverIds: [] });
     // Mom imported a gift for herself: it's hidden from her right away.
-    expect(list.find((g) => g.title === "For me")).toMatchObject({ recipientId: mom.personId, category: "stocking" });
+    expect(list.find((g) => g.title === "For me")).toMatchObject({ recipientIds: [mom.personId], isFamily: false, category: "stocking" });
     expect(((await call(`/gifts?seasonId=${season.id}`, { cookie: mom.cookie })).body as any[]).map((g) => g.title)).not.toContain("For me");
 
     const feed = (await call(`/activity?seasonId=${season.id}`, { cookie: dad.cookie })).body as any[];
-    expect(feed[0]).toMatchObject({ summary: "Imported 3 gifts", action: "created", userId: mom.userId, giftId: null, recipientId: null, seasonId: season.id });
+    expect(feed[0]).toMatchObject({ summary: "Imported 3 gifts", action: "created", userId: mom.userId, giftId: null, recipientId: null, recipientIds: [], seasonId: season.id });
 
     // Round trip: exporting and re-importing works.
     const exported = (await call(`/export.csv?seasonId=${season.id}`, { cookie: dad.cookie })).text;
@@ -254,16 +255,16 @@ describe("dashboard additions and giver-only people", () => {
     const budgetSanta = await call(`/seasons/${season.id}/budgets/${santa.id}`, { method: "PUT", cookie: dad.cookie, body: { budgetCents: 100 } });
     expect(budgetSanta.status).toBe(400);
 
-    await gift(dad, { title: "Candy", recipientId: kid.id, seasonId: season.id, category: "stocking", status: "ordered", estPriceCents: 300, giverIds: [santa.id] });
-    await gift(dad, { title: "Yo-yo", recipientId: kid.id, seasonId: season.id, category: "stocking", status: "planned", estPriceCents: 700 });
-    await gift(dad, { title: "Gum", recipientId: kid.id, seasonId: season.id, category: "stocking", status: "idea", estPriceCents: 50 });
-    await gift(dad, { title: "Bike", recipientId: kid.id, seasonId: season.id, status: "ordered", estPriceCents: 20000 });
-    await gift(dad, { title: "Lip balm", recipientId: mom.personId, seasonId: season.id, category: "stocking", status: "ordered", estPriceCents: 400 });
+    await gift(dad, { title: "Candy", recipientIds: [kid.id], seasonId: season.id, category: "stocking", status: "ordered", estPriceCents: 300, giverIds: [santa.id] });
+    await gift(dad, { title: "Yo-yo", recipientIds: [kid.id], seasonId: season.id, category: "stocking", status: "planned", estPriceCents: 700 });
+    await gift(dad, { title: "Gum", recipientIds: [kid.id], seasonId: season.id, category: "stocking", status: "idea", estPriceCents: 50 });
+    await gift(dad, { title: "Bike", recipientIds: [kid.id], seasonId: season.id, status: "ordered", estPriceCents: 20000 });
+    await gift(dad, { title: "Lip balm", recipientIds: [mom.personId], seasonId: season.id, category: "stocking", status: "ordered", estPriceCents: 400 });
 
     // A giver-only person can't receive gifts.
-    expect((await gift(dad, { title: "Cookies", recipientId: santa.id, seasonId: season.id })).status).toBe(400);
-    const g = (await gift(dad, { title: "Cocoa", recipientId: kid.id })).body;
-    expect((await call(`/gifts/${g.id}`, { method: "PATCH", cookie: dad.cookie, body: { recipientId: santa.id } })).status).toBe(400);
+    expect((await gift(dad, { title: "Cookies", recipientIds: [santa.id], seasonId: season.id })).status).toBe(400);
+    const g = (await gift(dad, { title: "Cocoa", recipientIds: [kid.id] })).body;
+    expect((await call(`/gifts/${g.id}`, { method: "PATCH", cookie: dad.cookie, body: { recipientIds: [santa.id] } })).status).toBe(400);
 
     const dm = (await call(`/dashboard?seasonId=${season.id}`, { cookie: mom.cookie })).body;
     // Allocation includes the viewer's own budget; excludes archived and giver-only people.

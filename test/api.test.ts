@@ -105,16 +105,16 @@ describe("gifts, dashboard and the surprise rule", () => {
 
     const mk = (who: { cookie: string }, body: Record<string, unknown>) => call("/gifts", { method: "POST", cookie: who.cookie, body });
 
-    const planned = await mk(dad, { title: "Lego", recipientId: kid.id, seasonId: season.id, status: "planned", estPriceCents: 4000, giverIds: [dad.personId, mom.personId], store: "Target" });
+    const planned = await mk(dad, { title: "Lego", recipientIds: [kid.id], seasonId: season.id, status: "planned", estPriceCents: 4000, giverIds: [dad.personId, mom.personId], store: "Target" });
     expect(planned.status).toBe(201);
     expect(planned.body).toMatchObject({ title: "Lego", giverIds: [mom.personId, dad.personId].sort((a, b) => a - b), createdBy: dad.userId, wished: false, priority: 2, category: "main" });
-    const ordered = (await mk(dad, { title: "Bike", recipientId: kid.id, seasonId: season.id, status: "ordered", estPriceCents: 9000, actualPriceCents: 8500, returnBy: addDays(today, -1), store: "REI" })).body;
-    await mk(dad, { title: "Socks", recipientId: kid.id, seasonId: season.id, status: "received", category: "stocking", estPriceCents: 500 });
-    await mk(dad, { title: "Idea only", recipientId: kid.id, seasonId: season.id, status: "idea", estPriceCents: 99999 });
+    const ordered = (await mk(dad, { title: "Bike", recipientIds: [kid.id], seasonId: season.id, status: "ordered", estPriceCents: 9000, actualPriceCents: 8500, returnBy: addDays(today, -1), store: "REI" })).body;
+    await mk(dad, { title: "Socks", recipientIds: [kid.id], seasonId: season.id, status: "received", category: "stocking", estPriceCents: 500 });
+    await mk(dad, { title: "Idea only", recipientIds: [kid.id], seasonId: season.id, status: "idea", estPriceCents: 99999 });
     // Gifts for Mom: current season (hidden), ideas inbox (hidden), past season (visible).
-    const momGift = (await mk(dad, { title: "Necklace", recipientId: mom.personId, seasonId: season.id, status: "ordered", actualPriceCents: 12000, store: "Secret Jeweler", returnBy: addDays(today, 3) })).body;
-    const momIdea = (await mk(dad, { title: "Spa day", recipientId: mom.personId })).body;
-    const momPast = (await mk(dad, { title: "Old scarf", recipientId: mom.personId, seasonId: past.id, status: "given" })).body;
+    const momGift = (await mk(dad, { title: "Necklace", recipientIds: [mom.personId], seasonId: season.id, status: "ordered", actualPriceCents: 12000, store: "Secret Jeweler", returnBy: addDays(today, 3) })).body;
+    const momIdea = (await mk(dad, { title: "Spa day", recipientIds: [mom.personId] })).body;
+    const momPast = (await mk(dad, { title: "Old scarf", recipientIds: [mom.personId], seasonId: past.id, status: "given" })).body;
 
     // Mom can't see hidden gifts anywhere.
     const momList = (await call("/gifts", { cookie: mom.cookie })).body as any[];
@@ -157,7 +157,7 @@ describe("gifts, dashboard and the surprise rule", () => {
     expect(kidCard).toMatchObject({ hidden: false, budgetCents: 30000, stockingBudgetCents: 5000, spentCents: spent, committedCents: committed, giftCount: 3, stockingCount: 1 });
     expect(kidCard.countsByStatus).toEqual({ idea: 1, planned: 1, ordered: 1, received: 1, wrapped: 0, given: 0, returned: 0 });
     expect(dm.fairness).toEqual([{ personId: kid.id, spentCents: spent, committedCents: committed, giftCount: 3 }]);
-    expect(dm.attention.returnsSoon).toEqual([{ giftId: ordered.id, title: "Bike", recipientId: kid.id, returnBy: addDays(today, -1), level: "red" }]);
+    expect(dm.attention.returnsSoon).toEqual([{ giftId: ordered.id, title: "Bike", recipientIds: [kid.id], isFamily: false, returnBy: addDays(today, -1), level: "red" }]);
     expect(dm.attention.orderedNotReceived.map((g: any) => g.title)).toEqual(["Bike"]);
     expect(dm.attention.receivedNotWrapped.map((g: any) => g.title)).toEqual(["Socks"]);
 
@@ -168,7 +168,7 @@ describe("gifts, dashboard and the surprise rule", () => {
     expect(dd.attention.returnsSoon.map((r: any) => [r.title, r.level])).toEqual([["Bike", "red"], ["Necklace", "amber"]]);
 
     // Creating a gift for yourself is allowed; it's hidden right away.
-    const self = await mk(mom, { title: "Thing I want", recipientId: mom.personId, seasonId: season.id });
+    const self = await mk(mom, { title: "Thing I want", recipientIds: [mom.personId], seasonId: season.id });
     expect(self.status).toBe(201);
     expect((await call(`/gifts/${self.body.id}`, { cookie: mom.cookie })).status).toBe(404);
 
@@ -184,10 +184,10 @@ describe("gifts, dashboard and the surprise rule", () => {
     const kid = (await call("/people", { method: "POST", cookie: dad.cookie, body: { name: "Sam", kind: "kid" } })).body;
     const santa = ((await call("/people", { cookie: dad.cookie })).body as any[]).find((p) => p.name === "Santa");
     expect(santa).toMatchObject({ kind: "other", emoji: "🎅" });
-    const g = (await call("/gifts", { method: "POST", cookie: dad.cookie, body: { title: "Ball", recipientId: kid.id, giverIds: [dad.personId] } })).body;
+    const g = (await call("/gifts", { method: "POST", cookie: dad.cookie, body: { title: "Ball", recipientIds: [kid.id], giverIds: [dad.personId] } })).body;
     const p = await call(`/gifts/${g.id}`, { method: "PATCH", cookie: dad.cookie, body: { status: "ordered", giverIds: [santa.id], actualPriceCents: 1234 } });
     expect(p.body).toMatchObject({ status: "ordered", giverIds: [santa.id], actualPriceCents: 1234, title: "Ball" });
-    expect((await call(`/gifts/${g.id}`, { method: "PATCH", cookie: dad.cookie, body: { recipientId: 999999 } })).status).toBe(400);
+    expect((await call(`/gifts/${g.id}`, { method: "PATCH", cookie: dad.cookie, body: { recipientIds: [999999] } })).status).toBe(400);
     expect((await call(`/gifts/${g.id}`, { method: "DELETE", cookie: dad.cookie })).body).toEqual({ ok: true });
     expect((await call(`/gifts/${g.id}`, { cookie: dad.cookie })).status).toBe(404);
     const log = await env.DB.prepare("SELECT action FROM activity_log WHERE gift_id = ? ORDER BY id").bind(g.id).all<{ action: string }>();
@@ -197,7 +197,7 @@ describe("gifts, dashboard and the surprise rule", () => {
     expect((await call(`/people/${dad.personId}`, { method: "DELETE", cookie: dad.cookie })).status).toBe(409);
     expect((await call(`/people/${kid.id}`, { method: "DELETE", cookie: dad.cookie })).body).toEqual({ ok: true, archived: false });
     const kid2 = (await call("/people", { method: "POST", cookie: dad.cookie, body: { name: "Ava", kind: "kid" } })).body;
-    await call("/gifts", { method: "POST", cookie: dad.cookie, body: { title: "Book", recipientId: kid2.id } });
+    await call("/gifts", { method: "POST", cookie: dad.cookie, body: { title: "Book", recipientIds: [kid2.id] } });
     expect((await call(`/people/${kid2.id}`, { method: "DELETE", cookie: dad.cookie })).body).toEqual({ ok: true, archived: true });
     const visible = (await call("/people", { cookie: dad.cookie })).body.map((x: any) => x.id);
     expect(visible).not.toContain(kid2.id);

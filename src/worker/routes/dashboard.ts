@@ -1,7 +1,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { gifts, people, personBudgets, seasons, type GiftStatus, type SeasonRow } from "../../db/schema";
-import { loadVisibleGifts } from "../gift-access";
+import { loadVisibleGifts, type GiftWithRecipients } from "../gift-access";
 import { notFound, parseQuery } from "../http";
 import {
   emptyStatusCounts,
@@ -10,6 +10,7 @@ import {
   remainingCents,
   returnByLevel,
   sumMoney,
+  sumMoneyFor,
 } from "../rules";
 import { toSeason, type ApiSeason } from "../serialize";
 import type { AppEnv, Variables } from "../types";
@@ -31,6 +32,14 @@ export interface DashboardPerson {
   countsByStatus: Record<GiftStatus, number>;
 }
 
+/** How attention items identify a gift and who it's for (recipientId was retired in part C). */
+interface AttentionGift {
+  giftId: number;
+  title: string;
+  recipientIds: number[];
+  isFamily: boolean;
+}
+
 export interface Dashboard {
   season: ApiSeason | null;
   totals: {
@@ -39,17 +48,19 @@ export interface Dashboard {
     committedCents: number;
     remainingCents: number;
     giftCount: number;
-    /** Sum of person budgets (non-archived, non-giver-only people, viewer included). */
+    /** Sum of person budgets (non-archived, non-giver-only people, viewer included) plus the family budget. */
     allocatedCents: number;
     /** overallBudgetCents − allocatedCents; negative = over-allocated. */
     unallocatedCents: number;
   };
   people: DashboardPerson[];
+  /** Family gifts: they count toward the totals once and toward no person. */
+  family: { budgetCents: number; spentCents: number; committedCents: number; giftCount: number };
   fairness: { personId: number; spentCents: number; committedCents: number; giftCount: number }[];
   attention: {
-    returnsSoon: { giftId: number; title: string; recipientId: number; returnBy: string; level: "amber" | "red" }[];
-    orderedNotReceived: { giftId: number; title: string; recipientId: number; store: string }[];
-    receivedNotWrapped: { giftId: number; title: string; recipientId: number }[];
+    returnsSoon: (AttentionGift & { returnBy: string; level: "amber" | "red" })[];
+    orderedNotReceived: (AttentionGift & { store: string })[];
+    receivedNotWrapped: AttentionGift[];
   };
 }
 
@@ -62,13 +73,18 @@ function emptyDashboard(season: ApiSeason | null): Dashboard {
       committedCents: 0,
       remainingCents: season?.overallBudgetCents ?? 0,
       giftCount: 0,
-      allocatedCents: 0,
-      unallocatedCents: season?.overallBudgetCents ?? 0,
+      allocatedCents: season?.familyBudgetCents ?? 0,
+      unallocatedCents: (season?.overallBudgetCents ?? 0) - (season?.familyBudgetCents ?? 0),
     },
     people: [],
+    family: { budgetCents: season?.familyBudgetCents ?? 0, spentCents: 0, committedCents: 0, giftCount: 0 },
     fairness: [],
     attention: { returnsSoon: [], orderedNotReceived: [], receivedNotWrapped: [] },
   };
+}
+
+function attentionGift(g: GiftWithRecipients): AttentionGift {
+  return { giftId: g.id, title: g.title, recipientIds: g.isFamily ? [] : g.recipientIds, isFamily: g.isFamily };
 }
 
 export async function buildDashboard(
@@ -85,10 +101,14 @@ export async function buildDashboard(
   const seasonGifts = visible.map((r) => r.gift);
   const budgetBy = new Map(budgets.map((b) => [b.personId, b]));
   const giftsBy = new Map<number, typeof seasonGifts>();
+  // A multi-person gift is in each recipient's list; family gifts are in nobody's.
   for (const g of seasonGifts) {
-    const list = giftsBy.get(g.recipientId) ?? [];
-    list.push(g);
-    giftsBy.set(g.recipientId, list);
+    if (g.isFamily) continue;
+    for (const personId of g.recipientIds) {
+      const list = giftsBy.get(personId) ?? [];
+      list.push(g);
+      giftsBy.set(personId, list);
+    }
   }
   const secret = isSeasonSecret(season, today);
 
@@ -103,9 +123,13 @@ export async function buildDashboard(
         (secret && p.id === viewer.personId && !p.archived)),
   );
 
-  // Allocation counts every budget, the viewer's own included (a budget isn't a surprise).
+  // Allocation counts every budget, the viewer's own included (a budget isn't a surprise),
+  // plus the family budget.
   const allocatable = new Set(allPeople.filter((p) => !p.archived && !p.giverOnly).map((p) => p.id));
-  const allocatedCents = budgets.reduce((sum, b) => (allocatable.has(b.personId) ? sum + b.budgetCents : sum), 0);
+  const allocatedCents = budgets.reduce(
+    (sum, b) => (allocatable.has(b.personId) ? sum + b.budgetCents : sum),
+    season.familyBudgetCents,
+  );
 
   const dashPeople: DashboardPerson[] = shown.map((p) => {
     if (secret && p.id === viewer.personId) {
@@ -123,9 +147,13 @@ export async function buildDashboard(
         countsByStatus: emptyStatusCounts(),
       };
     }
+    // Each recipient gets an even share of a multi-person gift (see splitCents).
     const list = giftsBy.get(p.id) ?? [];
-    const money = sumMoney(list);
-    const stockingMoney = sumMoney(list.filter((g) => g.category === "stocking"));
+    const money = sumMoneyFor(list, p.id);
+    const stockingMoney = sumMoneyFor(
+      list.filter((g) => g.category === "stocking"),
+      p.id,
+    );
     const countsByStatus = emptyStatusCounts();
     for (const g of list) countsByStatus[g.status]++;
     const b = budgetBy.get(p.id);
@@ -144,7 +172,9 @@ export async function buildDashboard(
     };
   });
 
+  // Totals count every gift once, at full price.
   const totalsMoney = sumMoney(seasonGifts);
+  const familyMoney = sumMoney(seasonGifts.filter((g) => g.isFamily));
   const kidIds = new Set(shown.filter((p) => p.kind === "kid").map((p) => p.id));
   const fairness = dashPeople
     .filter((p) => kidIds.has(p.personId) && !p.hidden)
@@ -153,7 +183,7 @@ export async function buildDashboard(
   const returnsSoon: Dashboard["attention"]["returnsSoon"] = [];
   for (const g of seasonGifts) {
     const level = returnByLevel(g, today);
-    if (level && g.returnBy) returnsSoon.push({ giftId: g.id, title: g.title, recipientId: g.recipientId, returnBy: g.returnBy, level });
+    if (level && g.returnBy) returnsSoon.push({ ...attentionGift(g), returnBy: g.returnBy, level });
   }
   returnsSoon.sort((a, b) => a.returnBy.localeCompare(b.returnBy) || a.giftId - b.giftId);
 
@@ -169,15 +199,21 @@ export async function buildDashboard(
       unallocatedCents: season.overallBudgetCents - allocatedCents,
     },
     people: dashPeople,
+    family: {
+      budgetCents: season.familyBudgetCents,
+      spentCents: familyMoney.spentCents,
+      committedCents: familyMoney.committedCents,
+      giftCount: familyMoney.giftCount,
+    },
     fairness,
     attention: {
       returnsSoon,
       orderedNotReceived: seasonGifts
         .filter((g) => g.status === "ordered")
-        .map((g) => ({ giftId: g.id, title: g.title, recipientId: g.recipientId, store: g.store })),
+        .map((g) => ({ ...attentionGift(g), store: g.store })),
       receivedNotWrapped: seasonGifts
         .filter((g) => g.status === "received")
-        .map((g) => ({ giftId: g.id, title: g.title, recipientId: g.recipientId })),
+        .map(attentionGift),
     },
   };
 }

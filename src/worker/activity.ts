@@ -1,13 +1,13 @@
 // Activity log: human-readable summaries (written at change time, with names resolved then)
 // and the feed, which applies the surprise rule from rules.ts.
-import { and, desc, eq, inArray, lt, type SQL } from "drizzle-orm";
-import { activityLog, gifts, seasons, users, type GiftRow, type GiftStatus } from "../db/schema";
+import { and, desc, eq, lt, type SQL } from "drizzle-orm";
+import { activityLog, seasons, users, type GiftRow, type GiftStatus } from "../db/schema";
+import { hiddenGiftIds, type GiftWithRecipients } from "./gift-access";
 import { PRICE_WATCH_ACTOR, PRICE_WATCH_USER_NAME } from "./price-watch";
 import { isGiftHidden } from "./rules";
 import type { ApiUser, Variables } from "./types";
 
 type Db = Variables["db"];
-const CHUNK = 90; // D1 allows at most 100 bound parameters per statement
 
 // ---------------------------------------------------------------- summaries
 
@@ -41,12 +41,21 @@ const FIELD_LABELS: Partial<Record<keyof GiftRow | "giverIds", string>> = {
 
 const q = (title: string) => `"${title}"`;
 
-export function createdSummary(title: string, recipientName: string): string {
-  return `Added ${q(title)} for ${recipientName}`;
+/**
+ * Who a gift is for, in words: "Ava", "Ava & Ben", or "the family". Names are passed in the
+ * order to show them (callers sort by person id).
+ */
+export function recipientLabel(names: readonly string[], isFamily: boolean): string {
+  if (isFamily) return "the family";
+  return names.length ? names.join(" & ") : "someone";
 }
 
-export function deletedSummary(title: string, recipientName: string): string {
-  return `Deleted ${q(title)} for ${recipientName}`;
+export function createdSummary(title: string, recipientLabel: string): string {
+  return `Added ${q(title)} for ${recipientLabel}`;
+}
+
+export function deletedSummary(title: string, recipientLabel: string): string {
+  return `Deleted ${q(title)} for ${recipientLabel}`;
 }
 
 export function importedSummary(n: number): string {
@@ -58,8 +67,8 @@ export function importedSummary(n: number): string {
  * Status changes get their own wording (`Marked "X" as wrapped`).
  */
 export function updatedSummary(
-  before: GiftRow,
-  after: GiftRow,
+  before: GiftWithRecipients,
+  after: GiftWithRecipients,
   names: { recipient: string },
   givers?: { before: number[]; after: number[] },
 ): string | null {
@@ -74,7 +83,9 @@ export function updatedSummary(
   });
   const statusChanged = before.status !== after.status;
   const titleChanged = before.title !== after.title;
-  const recipientChanged = before.recipientId !== after.recipientId;
+  const recipientChanged =
+    before.isFamily !== after.isFamily ||
+    [...before.recipientIds].sort((a, b) => a - b).join(",") !== [...after.recipientIds].sort((a, b) => a - b).join(",");
   if (statusChanged) {
     return `Marked ${q(after.title)} as ${STATUS_WORDS[after.status]}`;
   }
@@ -89,13 +100,15 @@ export function logGiftActivity(
   db: Db,
   userId: number,
   action: "create" | "update" | "delete",
-  gift: Pick<GiftRow, "id" | "recipientId" | "seasonId">,
+  gift: Pick<GiftWithRecipients, "id" | "recipientIds" | "isFamily" | "seasonId">,
   summary: string,
 ) {
+  const recipientIds = gift.isFamily ? [] : [...gift.recipientIds].sort((a, b) => a - b);
   return db.insert(activityLog).values({
     userId,
     giftId: gift.id,
-    recipientId: gift.recipientId,
+    recipientId: recipientIds[0] ?? null,
+    recipientIds,
     seasonId: gift.seasonId,
     action,
     summary,
@@ -112,9 +125,18 @@ export interface ActivityItem {
   action: "created" | "updated" | "deleted";
   summary: string;
   giftId: number | null;
+  /** The first logged recipient (legacy); prefer recipientIds. */
   recipientId: number | null;
+  /** The gift's recipients when the row was logged; [] for family gifts and rows not about one gift. */
+  recipientIds: number[];
   seasonId: number | null;
   at: string;
+}
+
+/** recipient_ids, falling back to the legacy recipient_id for rows that predate it. */
+function loggedRecipientIds(log: { recipientIds: number[] | null; recipientId: number | null }): number[] {
+  if (Array.isArray(log.recipientIds)) return log.recipientIds.filter((x) => typeof x === "number");
+  return log.recipientId != null ? [log.recipientId] : [];
 }
 
 const ACTION_WORDS = { create: "created", update: "updated", delete: "deleted" } as const;
@@ -152,23 +174,13 @@ export async function loadActivity(
 
     // Current state of the gifts these rows are about.
     const giftIds = [...new Set(rows.map((r) => r.log.giftId).filter((x): x is number => x != null))];
-    const hiddenNow = new Set<number>();
-    for (let i = 0; i < giftIds.length; i += CHUNK) {
-      const current = await db
-        .select({ id: gifts.id, recipientId: gifts.recipientId, season: seasons })
-        .from(gifts)
-        .leftJoin(seasons, eq(seasons.id, gifts.seasonId))
-        .where(inArray(gifts.id, giftIds.slice(i, i + CHUNK)))
-        .all();
-      for (const g of current) if (isGiftHidden(g, g.season, viewer.personId, today)) hiddenNow.add(g.id);
-    }
+    const hiddenNow = await hiddenGiftIds(db, viewer, today, giftIds);
 
     for (const { log, userName, season } of rows) {
-      if (log.recipientId != null) {
-        // A logged season id whose season no longer exists counts as "no season" (hidden).
-        if (isGiftHidden({ recipientId: log.recipientId }, log.seasonId == null ? null : season, viewer.personId, today)) {
-          continue;
-        }
+      const loggedIds = loggedRecipientIds(log);
+      // A logged season id whose season no longer exists counts as "no season" (hidden).
+      if (isGiftHidden({ recipientIds: loggedIds, isFamily: false }, log.seasonId == null ? null : season, viewer.personId, today)) {
+        continue;
       }
       if (log.giftId != null && hiddenNow.has(log.giftId)) continue;
       out.push({
@@ -179,6 +191,7 @@ export async function loadActivity(
         summary: log.summary,
         giftId: log.giftId,
         recipientId: log.recipientId,
+        recipientIds: loggedIds,
         seasonId: log.seasonId,
         at: log.at,
       });

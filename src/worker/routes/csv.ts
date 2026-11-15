@@ -6,6 +6,7 @@ import {
   GIFT_CATEGORIES,
   GIFT_STATUSES,
   giftGivers,
+  giftRecipients,
   gifts,
   people,
   seasons,
@@ -20,7 +21,7 @@ import { loadGiverIds, loadVisibleGifts, type GiftWithSeason } from "../gift-acc
 import { fail, notFound, parseJson, parseQuery, zodMessage } from "../http";
 import { formatCents, parsePriceToCents } from "../price";
 import type { AppEnv } from "../types";
-import { exportQuery, giftCreate, importBody } from "../validation";
+import { exportQuery, giftCreate, importBody, MAX_RECIPIENTS } from "../validation";
 
 export const CSV_COLUMNS = [
   "season",
@@ -56,17 +57,27 @@ export function slugify(s: string): string {
     .slice(0, 60);
 }
 
+/** The CSV `recipient` cell value for a family gift (matched case-insensitively on import). */
+export const FAMILY_CELL = "Family";
+
 export function exportRows(rows: GiftWithSeason[], peopleById: Map<number, PersonRow>, givers: Map<number, number[]>): string[][] {
   const name = (id: number) => peopleById.get(id)?.name ?? "";
+  const byPersonOrder = (x: number, y: number) =>
+    (peopleById.get(x)?.sortOrder ?? 0) - (peopleById.get(y)?.sortOrder ?? 0) || name(x).localeCompare(name(y)) || x - y;
+  const recipientsOf = (g: GiftWithSeason["gift"]) => (g.isFamily ? [] : [...g.recipientIds].sort(byPersonOrder));
+  const recipientCell = (g: GiftWithSeason["gift"]) =>
+    g.isFamily ? FAMILY_CELL : recipientsOf(g).map(name).filter(Boolean).join(" & ");
   const sorted = [...rows].sort((a, b) => {
     const da = a.season?.date ?? "";
     const dbb = b.season?.date ?? "";
     if (da !== dbb) return da < dbb ? 1 : -1; // newest season first, ideas inbox last
-    const pa = peopleById.get(a.gift.recipientId);
-    const pb = peopleById.get(b.gift.recipientId);
+    // Family gifts after everyone's; otherwise by the first recipient in people order.
+    if (a.gift.isFamily !== b.gift.isFamily) return a.gift.isFamily ? 1 : -1;
+    const pa = recipientsOf(a.gift)[0];
+    const pb = recipientsOf(b.gift)[0];
     return (
-      (pa?.sortOrder ?? 0) - (pb?.sortOrder ?? 0) ||
-      name(a.gift.recipientId).localeCompare(name(b.gift.recipientId)) ||
+      (pa !== undefined && pb !== undefined ? byPersonOrder(pa, pb) : 0) ||
+      recipientCell(a.gift).localeCompare(recipientCell(b.gift)) ||
       a.gift.title.localeCompare(b.gift.title) ||
       a.gift.id - b.gift.id
     );
@@ -80,7 +91,7 @@ export function exportRows(rows: GiftWithSeason[], peopleById: Map<number, Perso
       .join(" & ");
     const cells: Record<Column, string> = {
       season: safeTextCell(season?.name ?? ""),
-      recipient: safeTextCell(name(g.recipientId)),
+      recipient: safeTextCell(recipientCell(g)),
       title: safeTextCell(g.title),
       status: g.status,
       category: g.category,
@@ -151,6 +162,30 @@ function resolvePerson(idx: PeopleIndex, raw: string): { person: PersonRow } | {
   return { person: pool[0]! };
 }
 
+/**
+ * The `recipient` cell: "Family" (any case), one name, or names joined with "&". A name that
+ * itself contains "&" still matches when it's the whole cell.
+ */
+function resolveRecipients(
+  idx: PeopleIndex,
+  raw: string,
+): { isFamily: boolean; people: PersonRow[] } | { error: string } {
+  if (raw.trim().toLowerCase() === FAMILY_CELL.toLowerCase()) return { isFamily: true, people: [] };
+  const whole = idx.get(raw.trim().toLowerCase());
+  const names = whole?.length ? [raw] : raw.split(/\s*&\s*/).filter((s) => s.trim());
+  const found: PersonRow[] = [];
+  for (const n of names) {
+    const r = resolvePerson(idx, n);
+    if ("error" in r) return r;
+    if (r.person.giverOnly) return { error: `${r.person.name} only gives gifts` };
+    if (r.person.archived) return { error: `${r.person.name} is archived` };
+    if (found.some((p) => p.id === r.person.id)) return { error: `${r.person.name} is listed twice` };
+    found.push(r.person);
+  }
+  if (found.length > MAX_RECIPIENTS) return { error: `At most ${MAX_RECIPIENTS} recipients` };
+  return { isFamily: false, people: found };
+}
+
 interface ParsedImportRow {
   result: ImportRowResult;
   gift?: ReturnType<typeof giftCreate.parse>;
@@ -197,10 +232,9 @@ export function buildImportRows(
 
     if (!title) return err("title is required");
     if (!recipientName) return err("recipient is required");
-    const r = resolvePerson(idx, recipientName);
+    const r = resolveRecipients(idx, recipientName);
     if ("error" in r) return err(r.error);
-    if (r.person.giverOnly) return err(`${r.person.name} only gives gifts`);
-    result.recipient = r.person.name;
+    result.recipient = r.isFamily ? FAMILY_CELL : r.people.map((p) => p.name).join(" & ");
 
     const giverIds: number[] = [];
     for (const n of get("from").split(/\s*&\s*/).filter((s) => s.trim())) {
@@ -224,7 +258,8 @@ export function buildImportRows(
     const priority = Number(get("priority"));
     const parsed = giftCreate.safeParse({
       seasonId,
-      recipientId: r.person.id,
+      recipientIds: r.people.map((p) => p.id),
+      isFamily: r.isFamily,
       title,
       description: get("description"),
       url: get("url"),
@@ -287,12 +322,15 @@ csvRoutes.post("/import", async (c) => {
   const valid = built.rows.filter((r) => r.gift);
   if (!body.dryRun && valid.length > 0) {
     const now = new Date().toISOString();
-    // One atomic batch. Givers reference the gift inserted just before them via max(id),
+    // One atomic batch. Recipients and givers reference the gift inserted just before them via max(id),
     // which is safe because D1 runs a batch as a single transaction.
     const stmts = valid.flatMap(({ gift }) => {
-      const { giverIds, ...values } = gift!;
+      const { giverIds, recipientIds, ...values } = gift!;
       return [
         db.insert(gifts).values({ ...values, createdBy: user.id, updatedBy: user.id, createdAt: now, updatedAt: now }),
+        ...(recipientIds.length
+          ? [db.insert(giftRecipients).values(recipientIds.map((personId) => ({ giftId: sql`(SELECT max(id) FROM gifts)`, personId })))]
+          : []),
         ...(giverIds.length
           ? [db.insert(giftGivers).values(giverIds.map((personId) => ({ giftId: sql`(SELECT max(id) FROM gifts)`, personId })))]
           : []),
@@ -303,6 +341,7 @@ csvRoutes.post("/import", async (c) => {
         userId: user.id,
         giftId: null,
         recipientId: null,
+        recipientIds: null,
         seasonId: body.seasonId,
         action: "create",
         summary: importedSummary(valid.length),

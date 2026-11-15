@@ -84,6 +84,10 @@ export const seasonCreate = z.object({
 
 export const seasonPatch = z.object(seasonFields).partial();
 
+export const familyBudgetPut = z.object({
+  budgetCents: cents,
+});
+
 export const budgetPut = z.object({
   budgetCents: cents,
   stockingBudgetCents: cents.optional(),
@@ -91,9 +95,16 @@ export const budgetPut = z.object({
 
 // ---------------------------------------------------------------- gifts
 
+export const MAX_RECIPIENTS = 10;
+
 const giftFields = {
   seasonId: id.nullable(),
-  recipientId: id,
+  /** 1–10 distinct people, or empty for a family gift. */
+  recipientIds: z
+    .array(id)
+    .max(MAX_RECIPIENTS, `at most ${MAX_RECIPIENTS} recipients`)
+    .refine((ids) => new Set(ids).size === ids.length, { message: "recipients must be distinct" }),
+  isFamily: z.boolean(),
   title: z.string().trim().min(1).max(200),
   description: text(20000),
   url: text(2000),
@@ -115,8 +126,21 @@ const giftFields = {
     .transform((ids) => [...new Set(ids)]),
 };
 
-export const giftCreate = z.object({
+/**
+ * Exactly one of: a family gift with no recipients, or 1–10 recipients and not a family gift.
+ * Returns an error message, or null when the combination is valid.
+ */
+export function recipientsError(isFamily: boolean, recipientIds: readonly number[]): string | null {
+  if (isFamily) return recipientIds.length === 0 ? null : "recipientIds: a family gift has no individual recipients";
+  if (recipientIds.length === 0) return "recipientIds: choose at least one person, or make it a family gift";
+  return null;
+}
+
+export const giftCreate = z
+  .object({
   ...giftFields,
+  recipientIds: giftFields.recipientIds.default([]),
+  isFamily: giftFields.isFamily.default(false),
   seasonId: giftFields.seasonId.default(null),
   description: giftFields.description.default(""),
   url: giftFields.url.default(""),
@@ -133,7 +157,11 @@ export const giftCreate = z.object({
   returnBy: giftFields.returnBy.default(null),
   watchPrice: giftFields.watchPrice.default(false),
   giverIds: giftFields.giverIds.default([]),
-});
+})
+  .superRefine((g, ctx) => {
+    const error = recipientsError(g.isFamily, g.recipientIds);
+    if (error) ctx.addIssue({ code: "custom", message: error.replace(/^recipientIds: /, ""), path: ["recipientIds"] });
+  });
 
 export const giftPatch = z.object(giftFields).partial();
 
@@ -141,7 +169,8 @@ const intString = z.string().regex(/^\d+$/).transform(Number);
 
 export const giftQuery = z.object({
   seasonId: z.union([z.literal("none"), intString]).optional(),
-  recipientId: intString.optional(),
+  /** Matches any recipient; "family" returns family gifts. */
+  recipientId: z.union([z.literal("family"), intString]).optional(),
   status: z
     .string()
     .transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean))
@@ -183,8 +212,16 @@ export const historyQuery = z.object({
   personId: intString,
 });
 
+const idList = z
+  .string()
+  .regex(/^\d+(,\d+)*$/, "expected comma-separated ids")
+  .transform((s) => [...new Set(s.split(",").map(Number))]);
+
 export const similarQuery = z.object({
-  recipientId: intString,
+  /** Comma-separated person ids; matches when any recipient overlaps. "family" matches family gifts. */
+  recipientIds: z.union([z.literal("family"), idList]).optional(),
+  /** Deprecated single-recipient form, still accepted. */
+  recipientId: intString.optional(),
   title: z.string().max(200),
   excludeId: intString.optional(),
   /** The season being edited (matches in it aren't "given before"); defaults to excludeId's season, else the active one. */

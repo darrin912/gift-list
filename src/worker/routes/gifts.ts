@@ -1,8 +1,15 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
-import { giftGivers, gifts, people, seasons } from "../../db/schema";
-import { createdSummary, deletedSummary, logGiftActivity, updatedSummary } from "../activity";
-import { getVisibleGift, loadGiverIds, loadVisibleGifts } from "../gift-access";
+import { giftGivers, giftRecipients, gifts, people, seasons } from "../../db/schema";
+import { createdSummary, deletedSummary, logGiftActivity, recipientLabel, updatedSummary } from "../activity";
+import {
+  getVisibleGift,
+  hasAnyRecipient,
+  hasRecipient,
+  loadGiverIds,
+  loadVisibleGifts,
+  type GiftWithRecipients,
+} from "../gift-access";
 import { fail, idParam, parseJson, parseQuery } from "../http";
 import { checkFetchUrl } from "../link-preview";
 import { checkGiftPrice } from "../price-watch";
@@ -10,7 +17,7 @@ import { takeRateLimit } from "../rate-limit";
 import { titlesSimilar } from "../rules";
 import { toGift, toSeason } from "../serialize";
 import type { AppEnv, Variables } from "../types";
-import { giftCreate, giftPatch, giftQuery, historyQuery, similarQuery } from "../validation";
+import { giftCreate, giftPatch, giftQuery, historyQuery, recipientsError, similarQuery } from "../validation";
 
 export const CHECK_PRICE_MAX_PER_MINUTE = 10;
 export const SIMILAR_MAX = 5;
@@ -29,7 +36,8 @@ giftRoutes.get("/", async (c) => {
   const conds: SQL[] = [];
   if (f.seasonId === "none") conds.push(isNull(gifts.seasonId));
   else if (f.seasonId !== undefined) conds.push(eq(gifts.seasonId, f.seasonId));
-  if (f.recipientId !== undefined) conds.push(eq(gifts.recipientId, f.recipientId));
+  if (f.recipientId === "family") conds.push(eq(gifts.isFamily, true));
+  else if (f.recipientId !== undefined) conds.push(hasRecipient(f.recipientId));
   if (f.status && f.status.length > 0) conds.push(inArray(gifts.status, f.status));
   if (f.store) conds.push(sql`lower(${gifts.store}) = lower(${f.store})`);
   if (f.category) conds.push(eq(gifts.category, f.category));
@@ -59,23 +67,28 @@ giftRoutes.get("/", async (c) => {
   return c.json(rows.map((r) => toGift(r.gift, givers.get(r.gift.id) ?? [])));
 });
 
-/** 400s if any referenced season or person doesn't exist, or the recipient is giver-only. */
+/**
+ * 400s if any referenced season or person doesn't exist, or a recipient is giver-only or archived.
+ * `newRecipientIds` are the recipients being added (people already on the gift aren't re-checked
+ * for being archived since).
+ */
 export async function checkRefs(
   db: Db,
-  refs: { seasonId?: number | null; recipientId?: number; giverIds?: number[] },
+  refs: { seasonId?: number | null; newRecipientIds?: number[]; giverIds?: number[] },
 ): Promise<void> {
   if (refs.seasonId != null) {
     const s = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.id, refs.seasonId)).get();
     if (!s) fail(400, "seasonId: season not found");
   }
-  if (refs.recipientId !== undefined) {
-    const p = await db
-      .select({ id: people.id, giverOnly: people.giverOnly })
+  if (refs.newRecipientIds && refs.newRecipientIds.length > 0) {
+    const found = await db
+      .select({ id: people.id, giverOnly: people.giverOnly, archived: people.archived })
       .from(people)
-      .where(eq(people.id, refs.recipientId))
-      .get();
-    if (!p) fail(400, "recipientId: person not found");
-    if (p.giverOnly) fail(400, "recipientId: this person only gives gifts");
+      .where(inArray(people.id, refs.newRecipientIds))
+      .all();
+    if (found.length !== refs.newRecipientIds.length) fail(400, "recipientIds: person not found");
+    if (found.some((p) => p.giverOnly)) fail(400, "recipientIds: giver-only people can't receive gifts");
+    if (found.some((p) => p.archived)) fail(400, "recipientIds: archived people can't receive gifts");
   }
   if (refs.giverIds && refs.giverIds.length > 0) {
     const found = await db.select({ id: people.id }).from(people).where(inArray(people.id, refs.giverIds)).all();
@@ -83,25 +96,37 @@ export async function checkRefs(
   }
 }
 
-async function personName(db: Db, id: number): Promise<string> {
-  const p = await db.select({ name: people.name }).from(people).where(eq(people.id, id)).get();
-  return p?.name ?? "someone";
+/** "Ava", "Ava & Ben" (by ascending person id), or "the family". */
+async function giftRecipientLabel(db: Db, gift: Pick<GiftWithRecipients, "recipientIds" | "isFamily">): Promise<string> {
+  if (gift.isFamily || gift.recipientIds.length === 0) return recipientLabel([], gift.isFamily);
+  const rows = await db.select({ id: people.id, name: people.name }).from(people).where(inArray(people.id, gift.recipientIds)).all();
+  const byId = new Map(rows.map((r) => [r.id, r.name]));
+  return recipientLabel(
+    [...gift.recipientIds].sort((a, b) => a - b).map((id) => byId.get(id) ?? "someone"),
+    false,
+  );
+}
+
+function recipientRows(giftId: number, personIds: number[]) {
+  return personIds.map((personId) => ({ giftId, personId }));
 }
 
 giftRoutes.post("/", async (c) => {
-  const { giverIds, ...body } = await parseJson(c, giftCreate);
+  const { giverIds, recipientIds, ...body } = await parseJson(c, giftCreate);
   const db = c.var.db;
   const user = c.var.user;
-  await checkRefs(db, { seasonId: body.seasonId, recipientId: body.recipientId, giverIds });
+  await checkRefs(db, { seasonId: body.seasonId, newRecipientIds: recipientIds, giverIds });
   const now = new Date().toISOString();
-  const gift = await db
+  const row = await db
     .insert(gifts)
     .values({ ...body, createdBy: user.id, updatedBy: user.id, createdAt: now, updatedAt: now })
     .returning()
     .get();
-  const name = await personName(db, gift.recipientId);
+  const gift: GiftWithRecipients = { ...row, recipientIds: [...recipientIds].sort((a, b) => a - b) };
+  const label = await giftRecipientLabel(db, gift);
   await db.batch([
-    logGiftActivity(db, user.id, "create", gift, createdSummary(gift.title, name)),
+    logGiftActivity(db, user.id, "create", gift, createdSummary(gift.title, label)),
+    ...(recipientIds.length ? [db.insert(giftRecipients).values(recipientRows(gift.id, recipientIds))] : []),
     ...(giverIds.length ? [db.insert(giftGivers).values(giverIds.map((personId) => ({ giftId: gift.id, personId })))] : []),
   ]);
   // Note: a gift created for yourself is returned this once (you just typed it) but is
@@ -130,8 +155,14 @@ giftRoutes.get("/similar", async (c) => {
     currentSeasonId = active?.id ?? null;
   }
 
+  let who: SQL;
+  if (f.recipientIds === "family") who = eq(gifts.isFamily, true);
+  else if (f.recipientIds !== undefined) who = hasAnyRecipient(f.recipientIds);
+  else if (f.recipientId !== undefined) who = hasRecipient(f.recipientId);
+  else fail(400, "recipientIds: required");
+
   const conds: SQL[] = [
-    eq(gifts.recipientId, f.recipientId),
+    who,
     isNotNull(gifts.seasonId),
     notInArray(gifts.status, [...SIMILAR_EXCLUDED_STATUSES]),
   ];
@@ -167,7 +198,7 @@ giftRoutes.post("/:id/check-price", async (c) => {
   }
   const result = await checkGiftPrice(db, gift);
   const givers = await loadGiverIds(db, [id]);
-  return c.json(toGift(result.gift, givers.get(id) ?? []));
+  return c.json(toGift({ ...result.gift, recipientIds: gift.recipientIds }, givers.get(id) ?? []));
 });
 
 giftRoutes.get("/:id", async (c) => {
@@ -182,22 +213,40 @@ giftRoutes.patch("/:id", async (c) => {
   const db = c.var.db;
   const user = c.var.user;
   const before = (await getVisibleGift(db, user, c.var.today, id)).gift;
-  const { giverIds, ...body } = await parseJson(c, giftPatch);
-  await checkRefs(db, { seasonId: body.seasonId, recipientId: body.recipientId, giverIds });
+  const { giverIds, recipientIds: recipientIdsIn, ...body } = await parseJson(c, giftPatch);
 
-  const gift = await db
+  // Recipients: setting isFamily: true alone clears the people; sending people alone makes it a
+  // non-family gift. The resulting combination must be valid either way.
+  let recipientIds = recipientIdsIn;
+  if (body.isFamily === undefined && recipientIds !== undefined && recipientIds.length > 0) body.isFamily = false;
+  if (body.isFamily === true && recipientIds === undefined) recipientIds = [];
+  const isFamily = body.isFamily ?? before.isFamily;
+  const nextRecipients = [...(recipientIds ?? before.recipientIds)].sort((a, b) => a - b);
+  const error = recipientsError(isFamily, nextRecipients);
+  if (error) fail(400, error);
+  const added = recipientIds ? recipientIds.filter((p) => !before.recipientIds.includes(p)) : [];
+  await checkRefs(db, { seasonId: body.seasonId, newRecipientIds: added, giverIds });
+
+  const row = await db
     .update(gifts)
     .set({ ...body, updatedBy: user.id, updatedAt: new Date().toISOString() })
     .where(eq(gifts.id, id))
     .returning()
     .get();
-  if (!gift) fail(404, "Gift not found");
+  if (!row) fail(404, "Gift not found");
+  const gift: GiftWithRecipients = { ...row, recipientIds: nextRecipients };
 
-  const name = await personName(db, gift.recipientId);
+  const label = await giftRecipientLabel(db, gift);
   const giversBefore = giverIds ? ((await loadGiverIds(db, [id])).get(id) ?? []) : [];
-  const summary = updatedSummary(before, gift, { recipient: name }, giverIds ? { before: giversBefore, after: giverIds } : undefined);
+  const summary = updatedSummary(before, gift, { recipient: label }, giverIds ? { before: giversBefore, after: giverIds } : undefined);
   const stmts = [
     ...(summary ? [logGiftActivity(db, user.id, "update", gift, summary)] : []),
+    ...(recipientIds
+      ? [
+          db.delete(giftRecipients).where(eq(giftRecipients.giftId, id)),
+          ...(nextRecipients.length ? [db.insert(giftRecipients).values(recipientRows(id, nextRecipients))] : []),
+        ]
+      : []),
     ...(giverIds
       ? [
           db.delete(giftGivers).where(eq(giftGivers.giftId, id)),
@@ -216,10 +265,10 @@ giftRoutes.delete("/:id", async (c) => {
   const db = c.var.db;
   const user = c.var.user;
   const { gift } = await getVisibleGift(db, user, c.var.today, id);
-  const name = await personName(db, gift.recipientId);
+  const label = await giftRecipientLabel(db, gift);
   await db.batch([
     db.delete(gifts).where(eq(gifts.id, id)),
-    logGiftActivity(db, user.id, "delete", gift, deletedSummary(gift.title, name)),
+    logGiftActivity(db, user.id, "delete", gift, deletedSummary(gift.title, label)),
   ]);
   return c.json({ ok: true });
 });
@@ -247,7 +296,7 @@ export async function loadHistory(c: import("hono").Context<AppEnv>) {
     db,
     c.var.user,
     c.var.today,
-    and(eq(gifts.recipientId, personId), isNotNull(gifts.seasonId), eq(seasons.isActive, false)),
+    and(hasRecipient(personId), isNotNull(gifts.seasonId), eq(seasons.isActive, false)),
   );
   const bySeason = new Map<number, { season: NonNullable<(typeof rows)[number]["season"]>; gifts: typeof rows }>();
   for (const r of rows) {
