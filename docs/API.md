@@ -123,3 +123,19 @@ The Phase 1 rules still apply: cents, `{ error }` errors, the session cookie, an
 ## Unchanged, computed client-side from `/gifts` + `/people`
 The shopping list (by store), the wrapping and Christmas Eve checklist, the givers matrix, and the ideas inbox (`/gifts?seasonId=none`).
 The dashboard already returns `stockingBudgetCents` and `stockingCount` per person. Phase 2 also adds `stockingSpentCents` and `stockingCommittedCents` to each `people[]` entry, using the same money rules but only for `category = "stocking"` (0 when hidden).
+
+## Feedback changes (from first use)
+
+### Budget allocation
+`GET /dashboard` → `totals` gains:
+- `allocatedCents`: the sum of `budgetCents` across person budgets for the season, counting only people who aren't archived and aren't `giverOnly`. **This includes the viewer's own budget**, since a budget amount isn't a surprise; only gifts are hidden.
+- `unallocatedCents` = `overallBudgetCents − allocatedCents`. A negative value means **over-allocated**.
+
+The UI shows "Allocated $X of $Y · $Z unallocated", or a warning "Over-allocated by $Z", on the dashboard pot card and above the Settings budgets table (live as budgets are edited).
+
+### Giver-only people (Santa)
+`Person` gains `giverOnly: boolean` (default `false`). Migration: add the column and set it to `true` for the seeded Santa.
+- Giver-only people **can be chosen in "From"** but are never recipients.
+- `POST`/`PATCH /gifts` with a giver-only `recipientId` → 400. `PUT` budgets for a giver-only person → 400. `PATCH /people/:id` setting `giverOnly: true` on someone who already receives gifts → 409.
+- The dashboard's `people[]`, `fairness`, and allocation all exclude giver-only people.
+- UI: giver-only people never appear in recipient pickers, dashboard person cards, budgets tables, or givers-matrix columns. On the People screen they get a small separate section, "Gift tags (givers only)", e.g. 🎅 Santa. The person form has a toggle "Only gives gifts (a label like Santa)". Nothing in the frontend matches on the name "Santa" any more.
