@@ -95,7 +95,7 @@ describe("migration 0006 (gifts for several people)", () => {
     await db.prepare("DELETE FROM seasons WHERE id = 3").run(); // ON DELETE SET NULL still applies
     expect(await all("SELECT id, season_id FROM gifts WHERE id = 3")).toEqual([{ id: 3, season_id: null }]);
 
-    // ---- 0007 (phase 4): withdrawn_at + wish_snapshot, backfilled for existing wishlist items only.
+    // ---- 0007 (phase 4): withdrawn_at + the wishes table, backfilled for existing wishlist items only.
     await db.batch([
       db.prepare(
         `INSERT INTO gifts (id, season_id, title, description, wished, priority, est_price_cents, status, store, actual_price_cents, created_by, created_at, updated_at)
@@ -105,18 +105,19 @@ describe("migration 0006 (gifts for several people)", () => {
       db.prepare("INSERT INTO gift_recipients (gift_id, person_id) VALUES (6, 12), (7, 10)"),
     ]);
     await applyD1Migrations(db, migrations);
-    const after7 = await all<{ id: number; withdrawn_at: null; wish_snapshot: string | null }>(
-      "SELECT id, withdrawn_at, wish_snapshot FROM gifts WHERE id IN (3, 6, 7) ORDER BY id",
-    );
-    expect(after7.map((r) => [r.id, r.withdrawn_at, r.wish_snapshot && JSON.parse(r.wish_snapshot)])).toEqual([
-      [3, null, null],
-      [
-        6,
-        null,
-        // updatedAt is the creation time, not the live updated_at (which may reflect the spouse's edits).
-        { title: "Scarf wish", description: "blue", url: "", imageUrl: "", category: "main", priority: 1, estPriceCents: 3000, seasonId: null, updatedAt: "2026-11-06T00:00:00.000Z" },
-      ],
-      [7, null, null],
+    expect(await all("SELECT id, withdrawn_at FROM gifts WHERE id IN (3, 6, 7) ORDER BY id")).toEqual([
+      { id: 3, withdrawn_at: null },
+      { id: 6, withdrawn_at: null },
+      { id: 7, withdrawn_at: null },
+    ]);
+    // Only gift 6 (created by Mom for Mom, wished) becomes a wish. updated_at is the creation time,
+    // not the live updated_at (which may reflect the spouse's edits).
+    expect(await all("SELECT * FROM wishes")).toEqual([
+      {
+        id: 6, gift_id: 6, owner_user_id: 5, title: "Scarf wish", description: "blue", url: "", image_url: "", category: "main",
+        priority: 1, est_price_cents: 3000, season_id: null, withdrawn_at: null,
+        created_at: "2026-11-06T00:00:00.000Z", updated_at: "2026-11-06T00:00:00.000Z",
+      },
     ]);
 
     // The app reads migrated rows with their recipients.

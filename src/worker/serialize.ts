@@ -1,10 +1,10 @@
-import type { GiftCategory, PersonRow, SeasonRow } from "../db/schema";
+import type { GiftCategory, PersonRow, SeasonRow, WishRow } from "../db/schema";
 import type { GiftWithRecipients } from "./gift-access";
-import { isWishlistItem, wishSnapshotOf } from "./rules";
+import { isWishlistItem } from "./rules";
 
 export type ApiPerson = PersonRow;
 export type ApiSeason = SeasonRow;
-export type ApiGift = Omit<GiftWithRecipients, "wishSnapshot" | "creatorPersonId"> & {
+export type ApiGift = Omit<GiftWithRecipients, "creatorPersonId"> & {
   giverIds: number[];
   isWishlistItem: boolean;
 };
@@ -94,24 +94,19 @@ export function toGift(g: GiftWithRecipients, giverIds: number[]): ApiGift {
   };
 }
 
-/**
- * The owner's view of their wishlist item, built only from the owner's own snapshot (never from the
- * live gift, which the spouse may have planned, bought, re-priced or moved). Gifts that predate the
- * snapshot fall back to the fields as created, and to createdAt for updatedAt.
- */
-export function toWishItem(g: Pick<GiftWithRecipients, "id" | "createdAt" | "wishSnapshot"> & Parameters<typeof wishSnapshotOf>[0]): WishItem {
-  const s = g.wishSnapshot ?? wishSnapshotOf(g, g.createdAt);
+/** The owner's view of their wish: only the wishes row (never the live gift). */
+export function toWishItem(w: WishRow): WishItem {
   return {
-    id: g.id,
-    title: s.title,
-    description: s.description,
-    url: s.url,
-    imageUrl: s.imageUrl,
-    category: s.category,
-    priority: s.priority,
-    estPriceCents: s.estPriceCents,
-    seasonId: s.seasonId,
-    createdAt: g.createdAt,
-    updatedAt: s.updatedAt,
+    id: w.id,
+    title: w.title,
+    description: w.description,
+    url: w.url,
+    imageUrl: w.imageUrl,
+    category: w.category,
+    priority: w.priority,
+    estPriceCents: w.estPriceCents,
+    seasonId: w.seasonId,
+    createdAt: w.createdAt,
+    updatedAt: w.updatedAt,
   };
 }

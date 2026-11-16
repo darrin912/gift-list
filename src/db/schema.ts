@@ -11,22 +11,6 @@ export const GIFT_CATEGORIES = ["main", "stocking", "experience", "clothing", "b
 export const GIFT_STATUSES = ["idea", "planned", "ordered", "received", "wrapped", "given", "returned"] as const;
 export const ACTIVITY_ACTIONS = ["create", "update", "delete"] as const;
 
-/**
- * What the owner of a wishlist item last set, as they see it. Only ever written by the owner's
- * own /wishlist (or gift-create) requests, so it never reflects the spouse's planning.
- */
-export interface WishSnapshot {
-  title: string;
-  description: string;
-  url: string;
-  imageUrl: string;
-  category: GiftCategory;
-  priority: number;
-  estPriceCents: number | null;
-  seasonId: number | null;
-  updatedAt: string;
-}
-
 export type PersonKind = (typeof PERSON_KINDS)[number];
 export type SeasonKind = (typeof SEASON_KINDS)[number];
 export type GiftCategory = (typeof GIFT_CATEGORIES)[number];
@@ -139,8 +123,6 @@ export const gifts = sqliteTable(
     isFamily: integer("is_family", { mode: "boolean" }).notNull().default(false),
     /** Phase 4: set when the owner removed this wishlist item from their list (soft withdraw). */
     withdrawnAt: text("withdrawn_at"),
-    /** Phase 4: the owner's own view of a wishlist item (see migration 0007); null otherwise. */
-    wishSnapshot: text("wish_snapshot", { mode: "json" }).$type<WishSnapshot>(),
     createdBy: integer("created_by").references(() => users.id),
     updatedBy: integer("updated_by").references(() => users.id),
     createdAt: text("created_at").notNull().default(nowIso),
@@ -256,6 +238,35 @@ export const webauthnChallenges = sqliteTable(
   (t) => [index("webauthn_challenges_expires_idx").on(t.expiresAt)],
 );
 
+/**
+ * Phase 4: the owner's side of a wishlist item, fixed at creation and written only by the owner
+ * (see migration 0007). id = the gift's id at creation; giftId is null once the spouse deletes it.
+ */
+export const wishes = sqliteTable(
+  "wishes",
+  {
+    id: integer("id").primaryKey(),
+    giftId: integer("gift_id").references(() => gifts.id, { onDelete: "set null" }),
+    ownerUserId: integer("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    url: text("url").notNull().default(""),
+    imageUrl: text("image_url").notNull().default(""),
+    category: text("category", { enum: GIFT_CATEGORIES }).notNull().default("main"),
+    priority: integer("priority").notNull().default(2),
+    estPriceCents: integer("est_price_cents"),
+    /** The season the owner chose (not the gift's current season). */
+    seasonId: integer("season_id").references(() => seasons.id, { onDelete: "set null" }),
+    withdrawnAt: text("withdrawn_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [index("wishes_owner_idx").on(t.ownerUserId, t.createdAt), index("wishes_gift_idx").on(t.giftId)],
+);
+
+export type WishRow = typeof wishes.$inferSelect;
 export type PersonRow = typeof people.$inferSelect;
 export type UserRow = typeof users.$inferSelect;
 export type SeasonRow = typeof seasons.$inferSelect;

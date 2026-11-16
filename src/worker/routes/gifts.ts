@@ -1,11 +1,12 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
-import { giftGivers, giftRecipients, gifts, people, seasons } from "../../db/schema";
-import { createdSummary, deletedSummary, logGiftActivity, recipientLabel, updatedSummary, wishAddedSummary } from "../activity";
+import { giftGivers, giftRecipients, gifts, people, seasons, wishes } from "../../db/schema";
+import { createdSummary, deletedSummary, logGiftActivity, logWishActivity, recipientLabel, updatedSummary, wishAddedSummary } from "../activity";
 import {
   getVisibleGift,
   hasAnyRecipient,
   hasRecipient,
+  isOwnWishSql,
   isWishlistItemSql,
   loadGiverIds,
   loadVisibleGifts,
@@ -15,7 +16,7 @@ import { fail, idParam, parseJson, parseQuery } from "../http";
 import { checkFetchUrl } from "../link-preview";
 import { checkGiftPrice } from "../price-watch";
 import { takeRateLimit } from "../rate-limit";
-import { isWishlistItem, titlesSimilar, wishSnapshotOf } from "../rules";
+import { newWishRow, titlesSimilar } from "../rules";
 import { toGift, toSeason } from "../serialize";
 import type { AppEnv, Variables } from "../types";
 import { giftCreate, giftPatch, giftQuery, historyQuery, recipientsError, similarQuery } from "../validation";
@@ -121,14 +122,13 @@ giftRoutes.post("/", async (c) => {
   await checkRefs(db, { seasonId: body.seasonId, newRecipientIds: recipientIds, giverIds });
   const now = new Date().toISOString();
   // Phase 4: a gift you create for yourself alone is auto-marked wished, which makes it one of
-  // your wishlist items (reachable by you only through /wishlist, via its snapshot).
+  // your wishlist items (reachable by you only through /wishlist, via its wishes row).
   const forSelfOnly = !body.isFamily && recipientIds.length === 1 && recipientIds[0] === user.personId;
   if (forSelfOnly) body.wished = true;
   const row = await db
     .insert(gifts)
     .values({
       ...body,
-      wishSnapshot: forSelfOnly ? wishSnapshotOf(body, now) : null,
       createdBy: user.id,
       updatedBy: user.id,
       createdAt: now,
@@ -139,7 +139,10 @@ giftRoutes.post("/", async (c) => {
   const gift: GiftWithRecipients = { ...row, recipientIds: [...recipientIds].sort((a, b) => a - b), creatorPersonId: user.personId };
   const label = await giftRecipientLabel(db, gift);
   await db.batch([
-    logGiftActivity(db, user.id, "create", gift, isWishlistItem(gift) ? wishAddedSummary(gift.title) : createdSummary(gift.title, label)),
+    forSelfOnly
+      ? logWishActivity(db, { id: user.id, personId: user.personId! }, "create", gift.id, wishAddedSummary(gift.title))
+      : logGiftActivity(db, user.id, "create", gift, createdSummary(gift.title, label)),
+    ...(forSelfOnly ? [db.insert(wishes).values(newWishRow(gift.id, user.id, gift, now))] : []),
     ...(recipientIds.length ? [db.insert(giftRecipients).values(recipientRows(gift.id, recipientIds))] : []),
     ...(giverIds.length ? [db.insert(giftGivers).values(giverIds.map((personId) => ({ giftId: gift.id, personId })))] : []),
   ]);
@@ -289,14 +292,14 @@ giftRoutes.delete("/:id", async (c) => {
 
 /**
  * GET /stores: distinct store names, most used first. Unaffected by the surprise rule, except that
- * the viewer's own wishlist items never count (phase 4: a store the spouse set while buying one
- * must not show up, or move up, in the owner's autocomplete).
+ * the viewer's own wishes never count, whatever the spouse has changed on them (phase 4: a store the
+ * spouse set while buying one must not show up, or move up, in the owner's autocomplete).
  */
 export async function listStores(db: Db, viewer: { id: number }): Promise<string[]> {
   const rows = await db
     .select({ store: gifts.store, n: sql<number>`count(*)` })
     .from(gifts)
-    .where(and(sql`${gifts.store} <> ''`, sql`NOT (${gifts.createdBy} IS ${viewer.id} AND ${isWishlistItemSql})`))
+    .where(and(sql`${gifts.store} <> ''`, sql`NOT ${isOwnWishSql(viewer.id)}`))
     .groupBy(gifts.store)
     .orderBy(desc(sql`count(*)`), gifts.store)
     .all();

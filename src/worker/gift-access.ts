@@ -1,9 +1,9 @@
 // Gift reads that always apply the surprise rule. Routes must load gifts through
 // these helpers rather than querying the gifts table directly.
 import { and, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
-import { giftGivers, giftRecipients, gifts, seasons, users, type GiftRow, type SeasonRow } from "../db/schema";
+import { giftGivers, giftRecipients, gifts, seasons, users, wishes, type GiftRow, type SeasonRow, type WishRow } from "../db/schema";
 import { notFound } from "./http";
-import { isGiftHidden, isOnOwnWishlist } from "./rules";
+import { isGiftHidden, isWishLive } from "./rules";
 import type { ApiUser, Variables } from "./types";
 
 type Db = Variables["db"];
@@ -86,35 +86,33 @@ export async function getVisibleGift(db: Db, viewer: ApiUser, today: string, id:
 }
 
 /**
- * The viewer's own wishlist: the only way an owner can reach gifts the surprise rule hides from
- * them. Newest first (created_at, then id; both fixed at creation). Ignores status and every other
- * planning field, so nothing the spouse does changes membership or order, except what the
- * contract defines (withdrawing, a past/archived season, or the gift no longer being a wishlist item).
+ * The viewer's own wishlist, from the wishes table only: the owner-controlled side of each wish.
+ * Newest first (created_at, then id; both fixed at creation). Membership depends only on the owner's
+ * own state (see rules.ts isWishLive), never on the gift the spouse plans with.
  */
-export async function loadOwnWishlist(db: Db, viewer: ApiUser, today: string, id?: number): Promise<GiftWithSeason[]> {
-  if (viewer.personId == null) return [];
-  const conds: SQL[] = [eq(gifts.createdBy, viewer.id), isNull(gifts.withdrawnAt), isWishlistItemSql];
-  if (id !== undefined) conds.push(eq(gifts.id, id));
+export async function loadOwnWishlist(db: Db, viewer: ApiUser, today: string, id?: number): Promise<WishRow[]> {
+  const conds: SQL[] = [eq(wishes.ownerUserId, viewer.id), isNull(wishes.withdrawnAt)];
+  if (id !== undefined) conds.push(eq(wishes.id, id));
   const rows = await db
-    .select({ gift: gifts, season: seasons, recipientIds: recipientIdsJson, creatorPersonId: creatorPersonIdSql })
-    .from(gifts)
-    .leftJoin(seasons, eq(seasons.id, gifts.seasonId))
+    .select({ wish: wishes, season: seasons })
+    .from(wishes)
+    .leftJoin(seasons, eq(seasons.id, wishes.seasonId))
     .where(and(...conds))
-    .orderBy(desc(gifts.createdAt), desc(gifts.id))
+    .orderBy(desc(wishes.createdAt), desc(wishes.id))
     .all();
-  const out: GiftWithSeason[] = [];
-  for (const r of rows) {
-    const gift = { ...r.gift, recipientIds: parseRecipientIds(r.recipientIds), creatorPersonId: r.creatorPersonId ?? null };
-    if (isOnOwnWishlist(gift, r.season, viewer, today)) out.push({ gift, season: r.season });
-  }
-  return out;
+  return rows.filter((r) => isWishLive(r.wish, r.season, today)).map((r) => r.wish);
 }
 
-/** One of the viewer's own wishlist items, or a 404 (same message whatever the reason). */
-export async function getOwnWish(db: Db, viewer: ApiUser, today: string, id: number): Promise<GiftWithSeason> {
+/** One of the viewer's own wishes, or a 404 (same message whatever the reason). */
+export async function getOwnWish(db: Db, viewer: ApiUser, today: string, id: number): Promise<WishRow> {
   const [row] = await loadOwnWishlist(db, viewer, today, id);
   if (!row) notFound("Wish not found");
   return row;
+}
+
+/** SQL condition: the gift is one of `userId`'s own wishes (fixed at creation; used by /stores). */
+export function isOwnWishSql(userId: number): SQL {
+  return sql`EXISTS (SELECT 1 FROM ${wishes} WHERE ${wishes.giftId} = ${gifts.id} AND ${wishes.ownerUserId} = ${userId})`;
 }
 
 /**

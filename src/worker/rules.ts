@@ -1,6 +1,6 @@
 // The Money rules and the Surprise rule from docs/API.md, in one place.
 // Every route that returns or counts gifts must go through these helpers.
-import { GIFT_STATUSES, type GiftRow, type GiftStatus, type WishSnapshot } from "../db/schema";
+import { GIFT_STATUSES, type GiftRow, type GiftStatus } from "../db/schema";
 
 // ---------------------------------------------------------------- dates
 
@@ -191,30 +191,19 @@ export function isWishlistItem(g: WishlistFacts): boolean {
 }
 
 /**
- * Whether the owner (the viewer) can reach this gift through /wishlist: their own wishlist item,
- * not withdrawn, and still hidden from them by the surprise rule (ideas inbox, or a season that
- * isn't past or archived). Once the season is past the item is an ordinary visible gift instead.
- * Deliberately ignores status, prices, store, givers and everything else the spouse plans with.
+ * Whether a wish is on its owner's /wishlist. Depends only on owner-controlled state (the wishes
+ * row): not withdrawn by the owner, and the season the OWNER chose is the ideas inbox or isn't
+ * past/archived. Never looks at the gift (its status, recipients, wished flag, season, or whether
+ * it still exists), so nothing the spouse does can change it.
  */
-export function isOnOwnWishlist(
-  g: WishlistFacts & { createdBy: number | null; withdrawnAt: string | null },
-  season: SeasonForRule | null,
-  viewer: { id: number; personId: number | null },
-  today: string,
-): boolean {
-  return (
-    g.createdBy === viewer.id &&
-    g.withdrawnAt == null &&
-    isWishlistItem(g) &&
-    isGiftHidden(g, season, viewer.personId, today)
-  );
+export function isWishLive(wish: { withdrawnAt: string | null }, ownerSeason: SeasonForRule | null, today: string): boolean {
+  return wish.withdrawnAt == null && (ownerSeason == null || isSeasonSecret(ownerSeason, today));
 }
 
-/** The owner's snapshot of a wishlist item, from the fields they just set. */
-export function wishSnapshotOf(
+/** The WishItem fields of a gift (or request body), for a new or updated wishes row. */
+export function wishFieldsOf(
   g: Pick<GiftRow, "title" | "description" | "url" | "imageUrl" | "category" | "priority" | "estPriceCents" | "seasonId">,
-  updatedAt: string,
-): WishSnapshot {
+) {
   return {
     title: g.title,
     description: g.description,
@@ -224,8 +213,12 @@ export function wishSnapshotOf(
     priority: g.priority,
     estPriceCents: g.estPriceCents,
     seasonId: g.seasonId,
-    updatedAt,
   };
+}
+
+/** A new wishes row for a gift the owner just created as a wish. */
+export function newWishRow(giftId: number, ownerUserId: number, g: Parameters<typeof wishFieldsOf>[0], now: string) {
+  return { id: giftId, giftId, ownerUserId, ...wishFieldsOf(g), withdrawnAt: null, createdAt: now, updatedAt: now };
 }
 
 // ---------------------------------------------------------------- "given before" (similar titles)

@@ -274,15 +274,71 @@ describe("wishlist: nothing the spouse does leaks to the owner", () => {
     for (const w of ws) expect(ids).toContain(w.id); // never hard-deleted
   });
 
-  it("contract edges: a past season shows the gift normally; the spouse can still hard-delete", async () => {
-    const { owner, spouse, past, wish, patchGift } = await setup();
-    const w = await wish({ title: "Old wish" });
-    await patchGift(w.id, { seasonId: past.id, status: "given" });
+  it("membership is fixed by the owner: no spouse action changes the owner's /wishlist", async () => {
+    const { owner, spouse, s1, past, kid, wish, patchGift } = await setup();
+    const ws: any[] = [];
+    for (const t of ["Add recipient", "Clear wished", "Live season", "Past season", "Hard delete", "Family", "Away"]) {
+      ws.push(await wish({ title: `${t} ${owner.personId}`, estPriceCents: 1000 }));
+    }
+    const view = async () => {
+      const r = await call("/wishlist", { cookie: owner.cookie });
+      return `${r.status} ${r.text}`;
+    };
+    const before = await view();
+    const steps: [string, () => Promise<unknown>][] = [
+      ["add a recipient", () => patchGift(ws[0].id, { recipientIds: [owner.personId, kid.id] })],
+      ["clear wished", () => patchGift(ws[1].id, { wished: false })],
+      ["move to a live season", () => patchGift(ws[2].id, { seasonId: s1.id, status: "ordered" })],
+      ["move to a past season", () => patchGift(ws[3].id, { seasonId: past.id, status: "given" })],
+      ["hard delete", async () => expect((await call(`/gifts/${ws[4].id}`, { method: "DELETE", cookie: spouse.cookie })).status).toBe(200)],
+      ["make it a family gift", () => patchGift(ws[5].id, { isFamily: true })],
+      ["give it to someone else", () => patchGift(ws[6].id, { recipientIds: [kid.id] })],
+    ];
+    for (const [label, step] of steps) {
+      await step();
+      expect(await view(), label).toBe(before);
+    }
+    expect(JSON.parse(before.slice(4))).toHaveLength(7);
+
+    // PATCH and DELETE still behave identically on every one of them (compared with a fresh twin).
+    const twin = await wish({ title: "Twin", estPriceCents: 1000 });
+    const t = await call(`/wishlist/${twin.id}`, { method: "PATCH", cookie: owner.cookie, body: { priority: 1, title: "Edited" } });
+    for (const w of ws) {
+      const r = await call(`/wishlist/${w.id}`, { method: "PATCH", cookie: owner.cookie, body: { priority: 1, title: "Edited" } });
+      expect(r.status).toBe(t.status);
+      expect(norm(r.body)).toEqual(norm(t.body));
+    }
+    const td = await call(`/wishlist/${twin.id}`, { method: "DELETE", cookie: owner.cookie });
+    for (const w of ws) {
+      const r = await call(`/wishlist/${w.id}`, { method: "DELETE", cookie: owner.cookie });
+      expect(`${r.status} ${r.text}`).toBe(`${td.status} ${td.text}`);
+    }
     expect((await call("/wishlist", { cookie: owner.cookie })).body).toEqual([]);
-    expect((await call(`/gifts/${w.id}`, { cookie: owner.cookie })).body).toMatchObject({ isWishlistItem: true, status: "given" });
-    const w2 = await wish({ title: "Gone" });
-    expect((await call(`/gifts/${w2.id}`, { method: "DELETE", cookie: spouse.cookie })).status).toBe(200);
-    expect((await call(`/wishlist/${w2.id}`, { method: "DELETE", cookie: owner.cookie })).status).toBe(404);
+
+    // The gift itself still follows the surprise rule: hidden while its season is live (or it's
+    // shared with the owner), shown normally once its season is past.
+    const visible = (await call("/gifts", { cookie: owner.cookie })).body.map((g: any) => g.id);
+    expect(visible).not.toContain(ws[0].id);
+    expect(visible).not.toContain(ws[2].id);
+    expect(visible).toContain(ws[3].id);
+    // The spouse's views treat the deleted gift as deleted.
+    expect((await call(`/gifts/${ws[4].id}`, { cookie: spouse.cookie })).status).toBe(404);
+    // Activity about the owner's own wishlist actions stays hidden from the owner.
+    const ownerFeed = JSON.stringify((await call("/activity?limit=100", { cookie: owner.cookie })).body);
+    expect(ownerFeed).not.toContain(`wishlist item "Edited"`);
+  });
+
+  it("a wish leaves the owner's list only when the season the OWNER chose is past or archived", async () => {
+    const { owner, spouse, wish, patchGift } = await setup();
+    const n = owner.personId;
+    const own = (await call("/seasons", { method: "POST", cookie: owner.cookie, body: { name: `Own ${n}`, date: addDays(today, 5) } })).body;
+    const a = await wish({ title: "In own season", seasonId: own.id });
+    const b = await wish({ title: "Moved by spouse" });
+    await patchGift(b.id, { seasonId: own.id }); // the spouse's move doesn't count
+    await call(`/seasons/${own.id}`, { method: "PATCH", cookie: spouse.cookie, body: { archived: true } });
+    const ids = (await call("/wishlist", { cookie: owner.cookie })).body.map((w: any) => w.id);
+    expect(ids).toContain(b.id);
+    expect(ids).not.toContain(a.id);
   });
 });
 

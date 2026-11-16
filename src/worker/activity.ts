@@ -128,6 +128,21 @@ export function logGiftActivity(
   });
 }
 
+/**
+ * Activity for the owner's own wishlist actions. Logged as about the owner alone with no season,
+ * so the surprise rule hides the row from the owner forever, whatever the spouse later does to the
+ * gift (other recipients, another season, deletion).
+ */
+export function logWishActivity(
+  db: Db,
+  owner: { id: number; personId: number },
+  action: "create" | "update",
+  giftId: number,
+  summary: string,
+) {
+  return logGiftActivity(db, owner.id, action, { id: giftId, recipientIds: [owner.personId], isFamily: false, seasonId: null }, summary);
+}
+
 // ---------------------------------------------------------------- feed
 
 export interface ActivityItem {

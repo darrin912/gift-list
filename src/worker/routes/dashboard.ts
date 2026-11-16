@@ -7,7 +7,6 @@ import {
   emptyStatusCounts,
   isCounted,
   isSeasonSecret,
-  isWishlistItem,
   RETURN_WATCH_STATUSES,
   remainingCents,
   returnByLevel,
@@ -220,7 +219,7 @@ export async function buildDashboard(
         .map(attentionGift),
       // Only ever non-empty for viewers who can see the gift, i.e. never for its owner.
       withdrawnWishes: seasonGifts
-        .filter((g) => g.withdrawnAt != null && isWishlistItem(g) && RETURN_WATCH_STATUSES.includes(g.status))
+        .filter((g) => g.withdrawnAt != null && RETURN_WATCH_STATUSES.includes(g.status))
         .sort((a, b) => a.withdrawnAt!.localeCompare(b.withdrawnAt!) || a.id - b.id)
         .map((g) => ({ ...attentionGift(g), status: g.status, store: g.store, withdrawnAt: g.withdrawnAt! })),
     },

@@ -10,6 +10,7 @@ import {
   gifts,
   people,
   seasons,
+  wishes,
   type GiftCategory,
   type GiftStatus,
   type PersonRow,
@@ -17,7 +18,7 @@ import {
 } from "../../db/schema";
 import { importedSummary } from "../activity";
 import { CsvError, parseCsv, safeTextCell, toCsv, unescapeTextCell } from "../csv";
-import { wishSnapshotOf } from "../rules";
+import { newWishRow } from "../rules";
 import { loadGiverIds, loadVisibleGifts, type GiftWithSeason } from "../gift-access";
 import { fail, notFound, parseJson, parseQuery, zodMessage } from "../http";
 import { formatCents, parsePriceToCents } from "../price";
@@ -330,16 +331,21 @@ csvRoutes.post("/import", async (c) => {
       return [
         db.insert(gifts).values({
           ...values,
-          // Importing a wished gift for yourself alone makes it one of your wishlist items.
-          wishSnapshot:
-            values.wished && !values.isFamily && recipientIds.length === 1 && recipientIds[0] === user.personId
-              ? wishSnapshotOf(values, now)
-              : null,
           createdBy: user.id,
           updatedBy: user.id,
           createdAt: now,
           updatedAt: now,
         }),
+        // Importing a wished gift for yourself alone makes it one of your wishes.
+        ...(values.wished && !values.isFamily && recipientIds.length === 1 && recipientIds[0] === user.personId
+          ? [
+              db.insert(wishes).values({
+                ...newWishRow(0, user.id, values, now),
+                id: sql`(SELECT max(id) FROM gifts)`,
+                giftId: sql`(SELECT max(id) FROM gifts)`,
+              }),
+            ]
+          : []),
         ...(recipientIds.length
           ? [db.insert(giftRecipients).values(recipientIds.map((personId) => ({ giftId: sql`(SELECT max(id) FROM gifts)`, personId })))]
           : []),
