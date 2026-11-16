@@ -1,11 +1,12 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { giftGivers, giftRecipients, gifts, people, seasons } from "../../db/schema";
-import { createdSummary, deletedSummary, logGiftActivity, recipientLabel, updatedSummary } from "../activity";
+import { createdSummary, deletedSummary, logGiftActivity, recipientLabel, updatedSummary, wishAddedSummary } from "../activity";
 import {
   getVisibleGift,
   hasAnyRecipient,
   hasRecipient,
+  isWishlistItemSql,
   loadGiverIds,
   loadVisibleGifts,
   type GiftWithRecipients,
@@ -14,7 +15,7 @@ import { fail, idParam, parseJson, parseQuery } from "../http";
 import { checkFetchUrl } from "../link-preview";
 import { checkGiftPrice } from "../price-watch";
 import { takeRateLimit } from "../rate-limit";
-import { titlesSimilar } from "../rules";
+import { isWishlistItem, titlesSimilar, wishSnapshotOf } from "../rules";
 import { toGift, toSeason } from "../serialize";
 import type { AppEnv, Variables } from "../types";
 import { giftCreate, giftPatch, giftQuery, historyQuery, recipientsError, similarQuery } from "../validation";
@@ -47,6 +48,8 @@ giftRoutes.get("/", async (c) => {
     );
   }
   if (f.wished !== undefined) conds.push(eq(gifts.wished, f.wished === "1"));
+  if (f.wishlist === "1") conds.push(isWishlistItemSql);
+  else if (f.wishlist === "0") conds.push(sql`NOT ${isWishlistItemSql}`);
   if (f.q) {
     const pattern = `%${escapeLike(f.q)}%`;
     conds.push(
@@ -117,15 +120,26 @@ giftRoutes.post("/", async (c) => {
   const user = c.var.user;
   await checkRefs(db, { seasonId: body.seasonId, newRecipientIds: recipientIds, giverIds });
   const now = new Date().toISOString();
+  // Phase 4: a gift you create for yourself alone is auto-marked wished, which makes it one of
+  // your wishlist items (reachable by you only through /wishlist, via its snapshot).
+  const forSelfOnly = !body.isFamily && recipientIds.length === 1 && recipientIds[0] === user.personId;
+  if (forSelfOnly) body.wished = true;
   const row = await db
     .insert(gifts)
-    .values({ ...body, createdBy: user.id, updatedBy: user.id, createdAt: now, updatedAt: now })
+    .values({
+      ...body,
+      wishSnapshot: forSelfOnly ? wishSnapshotOf(body, now) : null,
+      createdBy: user.id,
+      updatedBy: user.id,
+      createdAt: now,
+      updatedAt: now,
+    })
     .returning()
     .get();
-  const gift: GiftWithRecipients = { ...row, recipientIds: [...recipientIds].sort((a, b) => a - b) };
+  const gift: GiftWithRecipients = { ...row, recipientIds: [...recipientIds].sort((a, b) => a - b), creatorPersonId: user.personId };
   const label = await giftRecipientLabel(db, gift);
   await db.batch([
-    logGiftActivity(db, user.id, "create", gift, createdSummary(gift.title, label)),
+    logGiftActivity(db, user.id, "create", gift, isWishlistItem(gift) ? wishAddedSummary(gift.title) : createdSummary(gift.title, label)),
     ...(recipientIds.length ? [db.insert(giftRecipients).values(recipientRows(gift.id, recipientIds))] : []),
     ...(giverIds.length ? [db.insert(giftGivers).values(giverIds.map((personId) => ({ giftId: gift.id, personId })))] : []),
   ]);
@@ -198,7 +212,7 @@ giftRoutes.post("/:id/check-price", async (c) => {
   }
   const result = await checkGiftPrice(db, gift);
   const givers = await loadGiverIds(db, [id]);
-  return c.json(toGift({ ...result.gift, recipientIds: gift.recipientIds }, givers.get(id) ?? []));
+  return c.json(toGift({ ...result.gift, recipientIds: gift.recipientIds, creatorPersonId: gift.creatorPersonId }, givers.get(id) ?? []));
 });
 
 giftRoutes.get("/:id", async (c) => {
@@ -234,7 +248,7 @@ giftRoutes.patch("/:id", async (c) => {
     .returning()
     .get();
   if (!row) fail(404, "Gift not found");
-  const gift: GiftWithRecipients = { ...row, recipientIds: nextRecipients };
+  const gift: GiftWithRecipients = { ...row, recipientIds: nextRecipients, creatorPersonId: before.creatorPersonId };
 
   const label = await giftRecipientLabel(db, gift);
   const giversBefore = giverIds ? ((await loadGiverIds(db, [id])).get(id) ?? []) : [];
@@ -273,12 +287,16 @@ giftRoutes.delete("/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-/** GET /stores: distinct store names, most used first. Unaffected by the surprise rule. */
-export async function listStores(db: Db): Promise<string[]> {
+/**
+ * GET /stores: distinct store names, most used first. Unaffected by the surprise rule, except that
+ * the viewer's own wishlist items never count (phase 4: a store the spouse set while buying one
+ * must not show up, or move up, in the owner's autocomplete).
+ */
+export async function listStores(db: Db, viewer: { id: number }): Promise<string[]> {
   const rows = await db
     .select({ store: gifts.store, n: sql<number>`count(*)` })
     .from(gifts)
-    .where(sql`${gifts.store} <> ''`)
+    .where(and(sql`${gifts.store} <> ''`, sql`NOT (${gifts.createdBy} IS ${viewer.id} AND ${isWishlistItemSql})`))
     .groupBy(gifts.store)
     .orderBy(desc(sql`count(*)`), gifts.store)
     .all();

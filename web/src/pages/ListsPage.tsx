@@ -1,13 +1,14 @@
 import type { ComponentType, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { SVGProps } from "react";
-import { useDraw, useGifts, usePeople } from "../lib/queries";
+import { useDraw, useGifts, usePeople, useUsers, useWishlist } from "../lib/queries";
+import { otherUsersLabel } from "../lib/wishlist";
 import { pairHasGift } from "../lib/phase3";
 import { useSeason } from "../lib/season";
 import { buildGiversMatrix, emptyCellCount, wrapProgress } from "../lib/lists";
 import { useMe } from "../lib/queries";
 import { PageHeader } from "../components/ui";
-import { IconBulb, IconCart, IconChevronLeft, IconChevronRight, IconClock, IconGrid, IconRibbon, IconShuffle } from "../components/Icons";
+import { IconBulb, IconHeart, IconCart, IconChevronLeft, IconChevronRight, IconClock, IconGrid, IconRibbon, IconShuffle } from "../components/Icons";
 
 type IconT = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
 
@@ -27,11 +28,22 @@ export default function ListsPage() {
   const matrix = buildGiversMatrix(list, people.data ?? []);
   const missing = matrix.givers.length ? emptyCellCount(matrix, me.data?.personId) : null;
   const ready = !!gifts.data;
+  const wishes = useWishlist();
+  const users = useUsers();
+  const others = otherUsersLabel(users.data ?? [], me.data?.id);
 
   return (
     <>
       <PageHeader title="Lists" sub={season ? `Helpers for ${season.name}` : "Helpers for the season"} />
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Tile
+          to="/wishlist"
+          icon={IconHeart}
+          tone="var(--berry)"
+          title="My wishlist"
+          body={`Things you'd love. ${others ?? "Your family"} ${others?.includes("&") ? "see" : "sees"} them; you never see if they're bought.`}
+          stat={wishes.data ? (wishes.data.length ? `${wishes.data.length} on your list` : "Nothing yet") : null}
+        />
         <Tile to="/lists/shopping" icon={IconCart} tone="var(--st-planned)" title="Shopping list" body="Planned gifts, grouped by store." stat={ready ? (toBuy ? `${toBuy} to buy` : "All bought") : null} />
         <Tile
           to="/lists/wrapping"

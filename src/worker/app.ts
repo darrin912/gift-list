@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import * as schema from "../db/schema";
+import { users } from "../db/schema";
 import { authRoutes, authSessionRoutes, requireSession } from "./auth";
 import { passkeyPublicRoutes, passkeySessionRoutes } from "./passkeys";
 import { activityRoutes } from "./routes/activity";
@@ -11,6 +12,7 @@ import { giftRoutes, listStores, loadHistory } from "./routes/gifts";
 import { linkPreviewRoutes } from "./routes/link-preview";
 import { peopleRoutes } from "./routes/people";
 import { seasonRoutes } from "./routes/seasons";
+import { wishlistRoutes } from "./routes/wishlist";
 import { todayUtc } from "./rules";
 import type { AppEnv } from "./types";
 
@@ -35,7 +37,18 @@ export function createApi() {
   api.route("/people", peopleRoutes);
   api.route("/seasons", seasonRoutes);
   api.route("/gifts", giftRoutes);
-  api.get("/stores", async (c) => c.json(await listStores(c.var.db)));
+  api.get("/stores", async (c) => c.json(await listStores(c.var.db, c.var.user)));
+  api.route("/wishlist", wishlistRoutes);
+  // Phase 4: who the other signed-in users are (display names for "From Darrin's wishlist" and
+  // "Stephanie will see..."). No emails or anything else.
+  api.get("/users", async (c) => {
+    const rows = await c.var.db
+      .select({ id: users.id, displayName: users.displayName, personId: users.personId })
+      .from(users)
+      .orderBy(users.id)
+      .all();
+    return c.json(rows);
+  });
   api.get("/history", async (c) => c.json(await loadHistory(c)));
   api.route("/dashboard", dashboardRoutes);
   api.route("/activity", activityRoutes);

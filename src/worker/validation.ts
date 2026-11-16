@@ -180,6 +180,8 @@ export const giftQuery = z.object({
   category: z.enum(GIFT_CATEGORIES).optional(),
   giverId: intString.optional(),
   wished: z.enum(["0", "1"]).optional(),
+  /** Phase 4: "1" = only wishlist items (someone's own wishes). */
+  wishlist: z.enum(["0", "1"]).optional(),
   q: z.string().trim().max(200).optional(),
 });
 
@@ -205,6 +207,33 @@ export const importBody = z.object({
   seasonId: id.nullable().default(null),
   dryRun: z.boolean().default(false),
 });
+
+// ---------------------------------------------------------------- phase 4: my wishlist
+
+/** Only the WishItem fields; anything else (status, store, givers, ...) is rejected, not ignored. */
+const wishFields = {
+  title: giftFields.title,
+  description: giftFields.description,
+  url: giftFields.url,
+  imageUrl: giftFields.imageUrl,
+  category: giftFields.category,
+  priority: giftFields.priority,
+  estPriceCents: giftFields.estPriceCents,
+  seasonId: giftFields.seasonId,
+};
+
+export const wishCreate = z.strictObject({
+  ...wishFields,
+  description: wishFields.description.default(""),
+  url: wishFields.url.default(""),
+  imageUrl: wishFields.imageUrl.default(""),
+  category: wishFields.category.default("main"),
+  priority: wishFields.priority.default(2),
+  estPriceCents: wishFields.estPriceCents.default(null),
+  seasonId: wishFields.seasonId.default(null),
+});
+
+export const wishPatch = z.strictObject(wishFields).partial();
 
 // ---------------------------------------------------------------- phase 3
 

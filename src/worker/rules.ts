@@ -1,6 +1,6 @@
 // The Money rules and the Surprise rule from docs/API.md, in one place.
 // Every route that returns or counts gifts must go through these helpers.
-import { GIFT_STATUSES, type GiftStatus } from "../db/schema";
+import { GIFT_STATUSES, type GiftRow, type GiftStatus, type WishSnapshot } from "../db/schema";
 
 // ---------------------------------------------------------------- dates
 
@@ -164,6 +164,68 @@ export function isGiftHidden(
 /** Whether the season is still "live" for the surprise rule (not archived, not past). */
 export function isSeasonSecret(season: SeasonForRule, today: string): boolean {
   return !season.archived && season.date >= today;
+}
+
+// ---------------------------------------------------------------- wishlist (phase 4)
+
+/** What decides whether a gift is someone's wishlist item. */
+export interface WishlistFacts extends GiftRecipients {
+  wished: boolean;
+  /** The person linked to the user who created the gift (null: no creator, or creator has no person). */
+  creatorPersonId: number | null;
+}
+
+/**
+ * A wishlist item: created by a user for exactly themselves (one recipient, not a family gift) and
+ * marked wished. True from every viewer's perspective. Gifts someone else created for you, even
+ * when wished, are not wishlist items and stay fully hidden by the surprise rule.
+ */
+export function isWishlistItem(g: WishlistFacts): boolean {
+  return (
+    g.wished &&
+    !g.isFamily &&
+    g.recipientIds.length === 1 &&
+    g.creatorPersonId != null &&
+    g.recipientIds[0] === g.creatorPersonId
+  );
+}
+
+/**
+ * Whether the owner (the viewer) can reach this gift through /wishlist: their own wishlist item,
+ * not withdrawn, and still hidden from them by the surprise rule (ideas inbox, or a season that
+ * isn't past or archived). Once the season is past the item is an ordinary visible gift instead.
+ * Deliberately ignores status, prices, store, givers and everything else the spouse plans with.
+ */
+export function isOnOwnWishlist(
+  g: WishlistFacts & { createdBy: number | null; withdrawnAt: string | null },
+  season: SeasonForRule | null,
+  viewer: { id: number; personId: number | null },
+  today: string,
+): boolean {
+  return (
+    g.createdBy === viewer.id &&
+    g.withdrawnAt == null &&
+    isWishlistItem(g) &&
+    isGiftHidden(g, season, viewer.personId, today)
+  );
+}
+
+/** The owner's snapshot of a wishlist item, from the fields they just set. */
+export function wishSnapshotOf(
+  g: Pick<GiftRow, "title" | "description" | "url" | "imageUrl" | "category" | "priority" | "estPriceCents" | "seasonId">,
+  updatedAt: string,
+): WishSnapshot {
+  return {
+    title: g.title,
+    description: g.description,
+    url: g.url,
+    imageUrl: g.imageUrl,
+    category: g.category,
+    priority: g.priority,
+    estPriceCents: g.estPriceCents,
+    seasonId: g.seasonId,
+    updatedAt,
+  };
 }
 
 // ---------------------------------------------------------------- "given before" (similar titles)

@@ -58,6 +58,18 @@ export function deletedSummary(title: string, recipientLabel: string): string {
   return `Deleted ${q(title)} for ${recipientLabel}`;
 }
 
+export function wishAddedSummary(title: string): string {
+  return `Added ${q(title)} to their wishlist`;
+}
+
+export function wishUpdatedSummary(title: string): string {
+  return `Updated wishlist item ${q(title)}`;
+}
+
+export function wishRemovedSummary(title: string): string {
+  return `Removed ${q(title)} from their wishlist`;
+}
+
 export function importedSummary(n: number): string {
   return `Imported ${n} ${n === 1 ? "gift" : "gifts"}`;
 }

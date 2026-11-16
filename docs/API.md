@@ -283,3 +283,13 @@ Wishlist items stay **hidden** from their owner in all existing routes (`/gifts`
   - Edit sheet; "Remove from my list" with a confirm ("Stephanie will see that you no longer want this").
   - Empty state: "Add things you'd love. Stephanie sees them; you'll never see if they were bought."
 - **Gift form:** choosing yourself as the only recipient while creating a new gift shows a hint linking to "Add to My wishlist instead", which is the recommended path. Saving still works as before, and the gift is auto-marked `wished` (it becomes a wishlist item).
+
+## Clarifications (as implemented)
+- Migration `0007` adds `gifts.withdrawn_at` and `gifts.wish_snapshot`. The snapshot is the owner's own copy of the WishItem fields (plus their own `updatedAt`), written only by the owner's `POST`/`PATCH /wishlist` (or by creating/importing a wished gift for themselves alone). `GET`/`PATCH /wishlist` responses are built from it, so nothing the spouse changes on the gift (status, prices, store, givers, title, season) changes them. Existing wishlist items are backfilled, with `updatedAt` = `createdAt`.
+- `PATCH /wishlist/:id`: edits are copied to the live gift too. `seasonId` moves the live gift only while it is still in the season the owner last chose; if the spouse has moved it, only the owner's snapshot changes (the response is the same either way). A `seasonId` must be `null` or a season that is neither past nor archived, else 400. Unknown fields (e.g. `status`) are 400.
+- `PATCH`/`DELETE /wishlist/:id` return `404 { "error": "Wish not found" }` for anything that isn't the viewer's own, live, non-withdrawn wishlist item.
+- `GET /gifts?wishlist=1` returns only wishlist items (`wishlist=0`: none).
+- `GET /dashboard` → `attention.withdrawnWishes: [{ giftId, title, recipientIds, isFamily, status, store, withdrawnAt }]`.
+- Activity rows for wishlist actions use action `created` / `updated` (removing is a soft withdraw, so it is `updated`).
+- `GET /stores` never counts the viewer's own wishlist items.
+- `GET /users` → `[{ id, displayName, personId }]` (no emails): display names for the wishlist badge and the remove confirmation.

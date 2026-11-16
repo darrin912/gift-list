@@ -3,7 +3,8 @@ import type { Gift, GiftStatus, Person } from "../api";
 import { ADVANCE_LABEL, ALL_STATUSES, CATEGORY_LABEL, effectivePriceCents, formatCents, nextStatus, returnLevel, returnPhrase, STATUS_LABEL } from "../lib/format";
 import { priceWatchInfo } from "../lib/phase3";
 import { isFamilyGift, isShared, recipientColor, recipientLabel } from "../lib/recipients";
-import { useUpdateGift } from "../lib/queries";
+import { useUpdateGift, useUsers } from "../lib/queries";
+import { wishBadgeText, wishOwnerName } from "../lib/wishlist";
 import { IconCheck, IconStar } from "./Icons";
 import { Markdown, StatusTrack, statusVar } from "./ui";
 
@@ -28,6 +29,33 @@ export function SharedBadge({ label, className = "" }: { label?: string; classNa
   );
 }
 
+/**
+ * Phase 4 badges for the people who plan gifts: "🎁 From Darrin's wishlist" (the creator's display
+ * name, from GET /users) and, once withdrawn, a gentle "No longer wanted".
+ */
+export function WishlistBadges({ gift, className = "" }: { gift: Pick<Gift, "isWishlistItem" | "createdBy" | "withdrawnAt">; className?: string }) {
+  const users = useUsers();
+  if (!gift.isWishlistItem) return null;
+  const text = wishBadgeText(wishOwnerName(gift, users.data ?? []));
+  return (
+    <span className={`flex min-w-0 flex-wrap items-center gap-1.5 ${className}`}>
+      <span className="inline-flex min-w-0 max-w-full items-center rounded-full bg-berry-soft px-2 py-0.5 text-[12px] font-bold text-berry" title={text}>
+        <span aria-hidden="true">🎁&nbsp;</span>
+        <span className="truncate">{text}</span>
+      </span>
+      {gift.withdrawnAt && <NoLongerWantedBadge />}
+    </span>
+  );
+}
+
+export function NoLongerWantedBadge({ className = "" }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full border border-dashed border-gold px-2 py-0.5 text-[12px] font-semibold text-gold ${className}`}>
+      No longer wanted
+    </span>
+  );
+}
+
 export function giversLabel(ids: number[], map: Map<number, Person>): string {
   const names = ids.map((id) => map.get(id)?.name).filter(Boolean) as string[];
   if (!names.length) return "";
@@ -46,10 +74,11 @@ export default function GiftCard({ gift, map, showRecipient = true }: { gift: Gi
   const color = recipientColor(gift, map);
   const shared = isShared(gift);
   const watch = priceWatchInfo(gift);
+  const withdrawn = !!gift.withdrawnAt;
 
   return (
     <article
-      className="tag-hole card relative overflow-hidden"
+      className={`tag-hole card relative overflow-hidden ${withdrawn ? "border-dashed" : ""}`}
       style={{ borderLeft: `5px solid ${color}` }}
       aria-label={gift.title}
     >
@@ -64,7 +93,8 @@ export default function GiftCard({ gift, map, showRecipient = true }: { gift: Gi
             {!showRecipient && (shared || isFamilyGift(gift)) && (
               <div className="mb-1">{isFamilyGift(gift) ? <span className="text-[13px] font-semibold text-gold">🏠 Family</span> : <SharedBadge label={recipientLabel(gift, map)} />}</div>
             )}
-            <h3 className="text-[17px] font-bold leading-snug">
+            <WishlistBadges gift={gift} className="mb-1" />
+            <h3 className={`text-[17px] font-bold leading-snug ${withdrawn ? "text-muted" : ""}`}>
               {gift.wished && <IconStar filled size={15} className="-mt-0.5 mr-1 inline text-gold" aria-label="Wished for" />}
               {gift.title}
             </h3>

@@ -5,7 +5,7 @@ import { ALL_STATUSES, effectivePriceCents, formatCents, STATUS_LABEL } from "..
 import { sortGifts, type SortDir, type SortKey } from "../lib/lists";
 import { useUpdateGift } from "../lib/queries";
 import { priceWatchInfo } from "../lib/phase3";
-import { giversLabel, PriceDropBadge } from "./GiftCard";
+import { giversLabel, PriceDropBadge, WishlistBadges } from "./GiftCard";
 import { recipientColor, recipientLabel, recipientSortKey } from "../lib/recipients";
 import { IconStar } from "./Icons";
 import { statusVar } from "./ui";
@@ -73,8 +73,9 @@ export default function GiftTable({ gifts, map, showRecipient = true }: { gifts:
                 <th scope="row" className="sticky left-0 z-10 max-w-[11rem] bg-surface px-3 py-2 font-semibold group-hover:bg-surface-2 sm:max-w-[16rem]" style={{ boxShadow: `inset 3px 0 0 ${recipientColor(g, map)}` }}>
                   <Link to={`/gifts/${g.id}`} className="line-clamp-2 leading-snug" onClick={(e) => e.stopPropagation()}>
                     {g.wished && <IconStar filled size={13} className="-mt-0.5 mr-1 inline text-gold" aria-label="Wished for" />}
-                    {g.title}
+                    <span className={g.withdrawnAt ? "text-muted" : ""}>{g.title}</span>
                   </Link>
+                  <WishlistBadges gift={g} className="mt-1" />
                 </th>
                 {showRecipient && (
                   <td className="whitespace-nowrap px-3 py-2">

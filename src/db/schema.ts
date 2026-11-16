@@ -11,6 +11,22 @@ export const GIFT_CATEGORIES = ["main", "stocking", "experience", "clothing", "b
 export const GIFT_STATUSES = ["idea", "planned", "ordered", "received", "wrapped", "given", "returned"] as const;
 export const ACTIVITY_ACTIONS = ["create", "update", "delete"] as const;
 
+/**
+ * What the owner of a wishlist item last set, as they see it. Only ever written by the owner's
+ * own /wishlist (or gift-create) requests, so it never reflects the spouse's planning.
+ */
+export interface WishSnapshot {
+  title: string;
+  description: string;
+  url: string;
+  imageUrl: string;
+  category: GiftCategory;
+  priority: number;
+  estPriceCents: number | null;
+  seasonId: number | null;
+  updatedAt: string;
+}
+
 export type PersonKind = (typeof PERSON_KINDS)[number];
 export type SeasonKind = (typeof SEASON_KINDS)[number];
 export type GiftCategory = (typeof GIFT_CATEGORIES)[number];
@@ -121,6 +137,10 @@ export const gifts = sqliteTable(
     priceDroppedAt: text("price_dropped_at"),
     /** A gift for the whole family: no recipients, never hidden by the surprise rule. */
     isFamily: integer("is_family", { mode: "boolean" }).notNull().default(false),
+    /** Phase 4: set when the owner removed this wishlist item from their list (soft withdraw). */
+    withdrawnAt: text("withdrawn_at"),
+    /** Phase 4: the owner's own view of a wishlist item (see migration 0007); null otherwise. */
+    wishSnapshot: text("wish_snapshot", { mode: "json" }).$type<WishSnapshot>(),
     createdBy: integer("created_by").references(() => users.id),
     updatedBy: integer("updated_by").references(() => users.id),
     createdAt: text("created_at").notNull().default(nowIso),

@@ -283,7 +283,8 @@ function FamilyCard({ f }: { f: NonNullable<Dashboard["family"]> }) {
 
 function Attention({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
   const a = d.attention;
-  const total = a.returnsSoon.length + a.orderedNotReceived.length + a.receivedNotWrapped.length;
+  const withdrawn = a.withdrawnWishes ?? [];
+  const total = a.returnsSoon.length + a.orderedNotReceived.length + a.receivedNotWrapped.length + withdrawn.length;
   const name = (g: RecipientsLike) => {
     const l = recipientLabel(g, map);
     return l === "Unknown" ? "Someone" : l;
@@ -317,6 +318,19 @@ function Attention({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
             <Group title="Ordered, not here yet">
               {a.orderedNotReceived.map((g) => (
                 <Row key={`o${g.giftId}`} to={`/gifts/${g.giftId}`} title={g.title} meta={[name(g), g.store].filter(Boolean).join(" · ")} dot="var(--st-ordered)" />
+              ))}
+            </Group>
+          )}
+          {withdrawn.length > 0 && (
+            <Group title="Withdrawn wishes">
+              {withdrawn.map((g) => (
+                <Row
+                  key={`x${g.giftId}`}
+                  to={`/gifts/${g.giftId}`}
+                  title={g.title}
+                  meta={[`${name(g)} no longer wants this`, STATUS_LABEL[g.status], g.store].filter(Boolean).join(" · ")}
+                  dot="var(--gold)"
+                />
               ))}
             </Group>
           )}

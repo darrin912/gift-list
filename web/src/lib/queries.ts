@@ -17,6 +17,8 @@ export const qk = {
     ["similar", [...recipientIds].sort((a, b) => a - b).join(","), title, excludeId ?? 0, seasonId ?? "none"] as const,
   draw: (seasonId: number) => ["draw", seasonId] as const,
   passkeys: ["passkeys"] as const,
+  wishlist: ["wishlist"] as const,
+  users: ["users"] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: qk.me, queryFn: api.auth.me, staleTime: 5 * 60_000 });
@@ -38,6 +40,8 @@ export const useHistory = (personId: number, enabled = true) =>
   useQuery({ queryKey: qk.history(personId), queryFn: () => api.history(personId), enabled });
 export const useDraw = (seasonId: number | undefined) =>
   useQuery({ queryKey: qk.draw(seasonId ?? -1), queryFn: () => api.seasons.draw(seasonId!), enabled: seasonId !== undefined });
+export const useWishlist = () => useQuery({ queryKey: qk.wishlist, queryFn: api.wishlist.list });
+export const useUsers = () => useQuery({ queryKey: qk.users, queryFn: api.users, staleTime: 5 * 60_000 });
 export const usePasskeys = () => useQuery({ queryKey: qk.passkeys, queryFn: api.auth.passkeys });
 
 /** Map of person id → person (includes archived so old gifts still show a name). */
@@ -59,6 +63,7 @@ export function useInvalidateGifts() {
     qc.invalidateQueries({ queryKey: ["activity"] });
     qc.invalidateQueries({ queryKey: ["history"] });
     qc.invalidateQueries({ queryKey: ["similar"] });
+    qc.invalidateQueries({ queryKey: qk.wishlist });
   };
 }
 

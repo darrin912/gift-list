@@ -52,7 +52,7 @@ describe("migration 0006 (gifts for several people)", () => {
     expect(giftsBefore).toHaveLength(3);
 
     // ---- 0006
-    await applyD1Migrations(db, migrations);
+    await applyD1Migrations(db, migrations.slice(0, idx + 1)); // through 0006 only (later migrations add columns)
 
     const giftsAfter = await all<Record<string, unknown>>("SELECT * FROM gifts ORDER BY id");
     expect(giftsAfter.map(({ is_family, ...rest }) => ({ ...rest, is_family }))).toEqual(
@@ -95,6 +95,30 @@ describe("migration 0006 (gifts for several people)", () => {
     await db.prepare("DELETE FROM seasons WHERE id = 3").run(); // ON DELETE SET NULL still applies
     expect(await all("SELECT id, season_id FROM gifts WHERE id = 3")).toEqual([{ id: 3, season_id: null }]);
 
+    // ---- 0007 (phase 4): withdrawn_at + wish_snapshot, backfilled for existing wishlist items only.
+    await db.batch([
+      db.prepare(
+        `INSERT INTO gifts (id, season_id, title, description, wished, priority, est_price_cents, status, store, actual_price_cents, created_by, created_at, updated_at)
+         VALUES (6, NULL, 'Scarf wish', 'blue', 1, 1, 3000, 'ordered', 'Secret Shop', 2800, 5, '2026-11-06T00:00:00.000Z', '2026-11-09T00:00:00.000Z'),
+                (7, NULL, 'Not mine', '', 1, 2, NULL, 'idea', '', NULL, 5, '2026-11-07T00:00:00.000Z', '2026-11-07T00:00:00.000Z')`,
+      ),
+      db.prepare("INSERT INTO gift_recipients (gift_id, person_id) VALUES (6, 12), (7, 10)"),
+    ]);
+    await applyD1Migrations(db, migrations);
+    const after7 = await all<{ id: number; withdrawn_at: null; wish_snapshot: string | null }>(
+      "SELECT id, withdrawn_at, wish_snapshot FROM gifts WHERE id IN (3, 6, 7) ORDER BY id",
+    );
+    expect(after7.map((r) => [r.id, r.withdrawn_at, r.wish_snapshot && JSON.parse(r.wish_snapshot)])).toEqual([
+      [3, null, null],
+      [
+        6,
+        null,
+        // updatedAt is the creation time, not the live updated_at (which may reflect the spouse's edits).
+        { title: "Scarf wish", description: "blue", url: "", imageUrl: "", category: "main", priority: 1, estPriceCents: 3000, seasonId: null, updatedAt: "2026-11-06T00:00:00.000Z" },
+      ],
+      [7, null, null],
+    ]);
+
     // The app reads migrated rows with their recipients.
     const viewer = { id: 0, email: "", displayName: "", personId: null };
     const loaded = await loadVisibleGifts(drizzle(db, { schema }), viewer, "2026-11-15");
@@ -102,6 +126,8 @@ describe("migration 0006 (gifts for several people)", () => {
       [2, [11], false],
       [3, [12], false],
       [5, [], false],
+      [6, [12], false],
+      [7, [10], false],
     ]);
   });
 });

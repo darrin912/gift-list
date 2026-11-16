@@ -7,6 +7,8 @@ import {
   emptyStatusCounts,
   isCounted,
   isSeasonSecret,
+  isWishlistItem,
+  RETURN_WATCH_STATUSES,
   remainingCents,
   returnByLevel,
   sumMoney,
@@ -61,6 +63,8 @@ export interface Dashboard {
     returnsSoon: (AttentionGift & { returnBy: string; level: "amber" | "red" })[];
     orderedNotReceived: (AttentionGift & { store: string })[];
     receivedNotWrapped: AttentionGift[];
+    /** Phase 4: wishlist items the owner withdrew after they were bought (a possible return). */
+    withdrawnWishes: (AttentionGift & { status: GiftStatus; store: string; withdrawnAt: string })[];
   };
 }
 
@@ -79,7 +83,7 @@ function emptyDashboard(season: ApiSeason | null): Dashboard {
     people: [],
     family: { budgetCents: season?.familyBudgetCents ?? 0, spentCents: 0, committedCents: 0, giftCount: 0 },
     fairness: [],
-    attention: { returnsSoon: [], orderedNotReceived: [], receivedNotWrapped: [] },
+    attention: { returnsSoon: [], orderedNotReceived: [], receivedNotWrapped: [], withdrawnWishes: [] },
   };
 }
 
@@ -214,6 +218,11 @@ export async function buildDashboard(
       receivedNotWrapped: seasonGifts
         .filter((g) => g.status === "received")
         .map(attentionGift),
+      // Only ever non-empty for viewers who can see the gift, i.e. never for its owner.
+      withdrawnWishes: seasonGifts
+        .filter((g) => g.withdrawnAt != null && isWishlistItem(g) && RETURN_WATCH_STATUSES.includes(g.status))
+        .sort((a, b) => a.withdrawnAt!.localeCompare(b.withdrawnAt!) || a.id - b.id)
+        .map((g) => ({ ...attentionGift(g), status: g.status, store: g.store, withdrawnAt: g.withdrawnAt! })),
     },
   };
 }

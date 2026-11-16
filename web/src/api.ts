@@ -1,4 +1,4 @@
-// Typed client for the Phase 1, 2 and 3 (A–C) API. See docs/API.md (the binding contract).
+// Typed client for the Phase 1–4 API. See docs/API.md (the binding contract).
 // Money is always integer cents. Dates are YYYY-MM-DD strings.
 
 export type PersonKind = "parent" | "kid" | "other";
@@ -84,9 +84,16 @@ export interface Gift {
   lowestSeenPriceCents?: number | null;
   lastCheckedAt?: string | null;
   priceDroppedAt?: string | null;
+  // Phase 4: someone's own wishlist item (created by them, for them alone, wished). Missing = false.
+  isWishlistItem?: boolean;
+  /** Phase 4: when the owner removed it from their wishlist ("No longer wanted"). */
+  withdrawnAt?: string | null;
 }
 export type GiftInput = Partial<
-  Omit<Gift, "id" | "createdBy" | "updatedBy" | "createdAt" | "updatedAt" | "lastSeenPriceCents" | "lowestSeenPriceCents" | "lastCheckedAt" | "priceDroppedAt">
+  Omit<
+    Gift,
+    "id" | "createdBy" | "updatedBy" | "createdAt" | "updatedAt" | "lastSeenPriceCents" | "lowestSeenPriceCents" | "lastCheckedAt" | "priceDroppedAt" | "isWishlistItem" | "withdrawnAt"
+  >
 >;
 
 export interface GiftFilters {
@@ -99,6 +106,8 @@ export interface GiftFilters {
   category?: GiftCategory;
   giverId?: number;
   wished?: boolean;
+  /** Phase 4: only wishlist items. */
+  wishlist?: boolean;
   q?: string;
 }
 
@@ -145,7 +154,35 @@ export interface Dashboard {
     returnsSoon: (AttentionWho & { giftId: number; title: string; returnBy: string; level: "amber" | "red" })[];
     orderedNotReceived: (AttentionWho & { giftId: number; title: string; store: string | null })[];
     receivedNotWrapped: (AttentionWho & { giftId: number; title: string })[];
+    /** Phase 4: wishlist items withdrawn after they were bought (a possible return). Missing on older servers. */
+    withdrawnWishes?: (AttentionWho & { giftId: number; title: string; status: GiftStatus; store: string | null; withdrawnAt: string })[];
   };
+}
+
+// ---- Phase 4: My wishlist ----
+
+/** The owner's view of one of their own wishlist items. Deliberately nothing about planning or buying. */
+export interface WishItem {
+  id: number;
+  title: string;
+  description: string;
+  url: string;
+  imageUrl: string;
+  category: GiftCategory;
+  priority: 1 | 2 | 3;
+  estPriceCents: number | null;
+  /** null = no particular occasion (the ideas inbox). */
+  seasonId: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export type WishInput = Partial<Omit<WishItem, "id" | "createdAt" | "updatedAt">>;
+
+/** GET /users: the signed-in users' display names (no emails). */
+export interface UserSummary {
+  id: number;
+  displayName: string;
+  personId: number | null;
 }
 
 // ---- Phase 2 ----
@@ -325,6 +362,7 @@ export function giftQueryString(f: GiftFilters): string {
   if (f.category) p.set("category", f.category);
   if (f.giverId !== undefined) p.set("giverId", String(f.giverId));
   if (f.wished) p.set("wished", "1");
+  if (f.wishlist) p.set("wishlist", "1");
   if (f.q && f.q.trim()) p.set("q", f.q.trim());
   const s = p.toString();
   return s ? `?${s}` : "";
@@ -388,6 +426,14 @@ export const api = {
       request<unknown>("GET", `/gifts/similar${similarQueryString(opts)}`).then((d) => unwrap<SimilarGift[]>(d, "similar")),
     checkPrice: (id: number) => request<unknown>("POST", `/gifts/${id}/check-price`).then((d) => unwrap<Gift>(d, "gift")),
   },
+  wishlist: {
+    list: () => request<unknown>("GET", "/wishlist").then((d) => unwrap<WishItem[]>(d, "wishlist")),
+    create: (input: WishInput & { title: string }) => request<WishItem>("POST", "/wishlist", input),
+    update: (id: number, input: WishInput) => request<WishItem>("PATCH", `/wishlist/${id}`, input),
+    /** Always a soft withdraw on the server. */
+    remove: (id: number) => request<{ ok: true }>("DELETE", `/wishlist/${id}`),
+  },
+  users: () => request<unknown>("GET", "/users").then((d) => unwrap<UserSummary[]>(d, "users")),
   history: (personId: number) =>
     request<unknown>("GET", `/history?personId=${personId}`).then((d) => unwrap<HistorySeason[]>(d, "history")),
   stores: () => request<unknown>("GET", "/stores").then((d) => unwrap<string[]>(d, "stores")),

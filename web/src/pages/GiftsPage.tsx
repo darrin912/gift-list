@@ -40,6 +40,7 @@ export default function GiftsPage() {
       store: sp.get("store") || undefined,
       giverId: sp.get("from") ? Number(sp.get("from")) : undefined,
       wished: sp.get("wished") === "1" || undefined,
+      wishlist: sp.get("wishlist") === "1" || undefined,
       q: sp.get("q") || undefined,
     }),
     [sp.toString(), seasonId, scope],
@@ -71,7 +72,7 @@ export default function GiftsPage() {
     set("status", next.join(",") || null);
   };
 
-  const activeCount = ["recipient", "category", "store", "from", "wished"].filter((k) => sp.get(k)).length;
+  const activeCount = ["recipient", "category", "store", "from", "wished", "wishlist"].filter((k) => sp.get(k)).length;
   // The server filters by recipient (any match); re-check so optimistic edits stay consistent.
   const list = (gifts.data ?? []).filter((g) => matchesRecipientFilter(g, filters.recipientId));
   const total = list.reduce((sum, g) => sum + (g.status === "idea" || g.status === "returned" ? 0 : effectivePriceCents(g)), 0);
@@ -210,11 +211,19 @@ export default function GiftsPage() {
           >
             <IconStar size={16} filled={sp.get("wished") === "1"} /> Wished for only
           </button>
+          <button
+            type="button"
+            className="chip justify-center sm:col-span-1"
+            aria-pressed={sp.get("wishlist") === "1"}
+            onClick={() => set("wishlist", sp.get("wishlist") === "1" ? null : "1")}
+          >
+            <span aria-hidden="true">🎁</span> Wishlist items
+          </button>
           {activeCount > 0 && (
             <button
               type="button"
               className="chip justify-center text-muted"
-              onClick={() => ["recipient", "from", "category", "store", "wished"].forEach((k) => set(k, null))}
+              onClick={() => ["recipient", "from", "category", "store", "wished", "wishlist"].forEach((k) => set(k, null))}
             >
               <IconX size={16} /> Clear filters
             </button>

@@ -1,12 +1,14 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Gift, type GiftCategory, type GiftInput, type GiftStatus } from "../api";
 import { ALL_STATUSES, CATEGORIES, CATEGORY_LABEL, centsToInput, formatCents, isGiverOnly, isHttpUrl, parseDollars, STATUS_LABEL } from "../lib/format";
 import { looksLikeUrl, mergePreview } from "../lib/lists";
 import { timeAgo } from "../lib/activity";
 import { canCheckSimilar, groupSeasons, priceWatchInfo, similarHint, similarHintText } from "../lib/phase3";
-import { qk, useDebounced, useInvalidateGifts, usePeople, usePeopleMap, useStores } from "../lib/queries";
+import { qk, useDebounced, useInvalidateGifts, useMe, usePeople, usePeopleMap, useStores, useUsers } from "../lib/queries";
+import { isForSelfOnly, possessive, wishOwnerName } from "../lib/wishlist";
+import { WishlistBadges } from "../components/GiftCard";
 import { useSeason } from "../lib/season";
 import { forFromParams, forStateError, giftRecipientIds, recipientLabel, splitHint, toggleFamily, toggleRecipient, type ForState } from "../lib/recipients";
 import { ErrorNote, Loading, MarkdownHint, Sheet, Toggle } from "../components/ui";
@@ -72,6 +74,8 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
   const people = usePeople();
   const stores = useStores();
   const invalidate = useInvalidateGifts();
+  const me = useMe();
+  const users = useUsers();
   const isNew = !gift;
 
   const [f, setF] = useState(() => ({
@@ -143,6 +147,9 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
   const split = splitHint(priceForHint, f.recipientIds);
   const parents = active.filter((p) => p.kind === "parent");
   const parentIds = parents.map((p) => p.id);
+  // Phase 4: a new gift for yourself alone becomes one of your wishlist items.
+  const selfOnly = isNew && isForSelfOnly(f, me.data?.personId);
+  const wishOwner = gift ? wishOwnerName(gift, users.data ?? []) : null;
   const bothParents = parentIds.length === 2 && parentIds.every((id) => f.giverIds.includes(id)) && f.giverIds.length === 2;
 
   const save = useMutation({
@@ -184,7 +191,7 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
       seasonId: f.seasonId,
       category: f.category,
       status: f.status,
-      wished: f.wished,
+      wished: f.wished || selfOnly,
       priority: f.priority,
       estPriceCents: est,
       actualPriceCents: actual,
@@ -228,6 +235,16 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
       }
     >
       <form id="gift-form" onSubmit={submit} className="space-y-5" noValidate>
+        {gift?.isWishlistItem && (
+          <div className={`rounded-2xl px-4 py-3 ${gift.withdrawnAt ? "border border-dashed border-gold bg-gold-soft" : "bg-berry-soft"}`}>
+            <WishlistBadges gift={gift} />
+            <p className="mt-1.5 text-[14px] leading-snug text-ink">
+              {gift.withdrawnAt
+                ? `${wishOwner ?? "They"} took this off their list. If it's already bought, you might return it.`
+                : `${wishOwner ? `${possessive(wishOwner)} own idea` : "Their own idea"}. They never see what you do with it.`}
+            </p>
+          </div>
+        )}
         <Field label="What is it?" htmlFor="title">
           <input
             id="title"
@@ -331,10 +348,25 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
                   ". The cost is split evenly between their budgets."
                 )}
               </>
+            ) : selfOnly ? (
+              "This is for you, so it goes on your wishlist."
             ) : (
               "Pick one or more people, or the whole family."
             )}
           </p>
+          {selfOnly && (
+            <p className="mt-2 rounded-xl bg-gold-soft px-3 py-2 text-[14px] leading-snug text-ink" role="note">
+              <span aria-hidden="true">🎁 </span>
+              Something you'd like yourself?{" "}
+              <Link
+                to={`/wishlist${f.title.trim() ? `?title=${encodeURIComponent(f.title.trim())}` : ""}`}
+                className="font-semibold text-pine underline decoration-2 underline-offset-4"
+              >
+                Add to My wishlist instead
+              </Link>
+              . It's the simpler way: you'll never see if it was bought.
+            </p>
+          )}
         </fieldset>
 
         <div>
