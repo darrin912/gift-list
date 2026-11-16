@@ -28,7 +28,7 @@ export default function PeoplePage() {
       <PageHeader
         title="People"
         right={
-          <Link to="/people/new" className="btn-primary">
+          <Link to="/people/new" className="btn-primary" data-tour="people-add">
             <IconPlus size={20} /> Add
           </Link>
         }

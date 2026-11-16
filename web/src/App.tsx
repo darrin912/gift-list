@@ -6,6 +6,7 @@ import { useMe } from "./lib/queries";
 import { SeasonProvider } from "./lib/season";
 import { Loading } from "./components/ui";
 import Layout from "./components/Layout";
+import { TourProvider } from "./components/Tour";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import GiftsPage from "./pages/GiftsPage";
@@ -46,7 +47,9 @@ function RequireAuth() {
   if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   return (
     <SeasonProvider>
-      <Outlet />
+      <TourProvider>
+        <Outlet />
+      </TourProvider>
     </SeasonProvider>
   );
 }

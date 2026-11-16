@@ -11,7 +11,8 @@ import { birthdaySeasonName, defaultDeviceName, nextBirthday, passkeyError, supp
 import { useSeason } from "../lib/season";
 import { csvRecipientLabel } from "../lib/recipients";
 import { AllocationLine, ErrorNote, Loading, PageHeader, PersonBadge, Toggle } from "../components/ui";
-import { IconCheck, IconDownload, IconLogout, IconPlus, IconTrash, IconUpload, IconX } from "../components/Icons";
+import { IconCheck, IconDownload, IconLogout, IconPlus, IconSparkle, IconTrash, IconUpload, IconX } from "../components/Icons";
+import { useTour } from "../components/Tour";
 import { timeAgo } from "../lib/activity";
 import { Money } from "./GiftFormPage";
 
@@ -35,6 +36,7 @@ export default function SettingsPage() {
           <ImportCsv />
           <Security />
           <Password />
+          <TourSection />
           <Account />
         </div>
       </div>
@@ -44,7 +46,7 @@ export default function SettingsPage() {
 
 function Section({ id, title, sub, children, right }: { id?: string; title: string; sub?: string; children: ReactNode; right?: ReactNode }) {
   return (
-    <section id={id} className="card scroll-mt-20 p-5">
+    <section id={id} data-tour={id} className="card scroll-mt-20 p-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-[19px] font-bold">{title}</h2>
@@ -532,6 +534,18 @@ function Password() {
           {change.isPending ? "Changing…" : "Change password"}
         </button>
       </form>
+    </Section>
+  );
+}
+
+function TourSection() {
+  const tour = useTour();
+  if (!tour) return null;
+  return (
+    <Section id="tour" title="Guided tour" sub="A quick walk through the app, one screen at a time.">
+      <button type="button" className="btn-quiet w-full" data-tour="take-tour" onClick={tour.start} disabled={tour.running}>
+        <IconSparkle size={20} /> Take the tour
+      </button>
     </Section>
   );
 }

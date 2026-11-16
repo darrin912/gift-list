@@ -314,7 +314,7 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
           )}
         </Field>
 
-        <fieldset aria-describedby="for-note">
+        <fieldset aria-describedby="for-note" data-tour="for">
           <legend className="label">For</legend>
           <div className="flex flex-wrap gap-2">
             {forPeople.map((p) => (
@@ -386,7 +386,7 @@ function GiftForm({ gift, onDone }: { gift: Gift | undefined; onDone: () => void
           </Field>
         </div>
 
-        <fieldset>
+        <fieldset data-tour="from">
           <legend className="label">From</legend>
           <div className="flex flex-wrap gap-2">
             {parents.length === 2 && (

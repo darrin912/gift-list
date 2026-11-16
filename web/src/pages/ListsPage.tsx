@@ -35,9 +35,10 @@ export default function ListsPage() {
   return (
     <>
       <PageHeader title="Lists" sub={season ? `Helpers for ${season.name}` : "Helpers for the season"} />
-      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="lists">
         <Tile
           to="/wishlist"
+          tour="wishlist-tile"
           icon={IconHeart}
           tone="var(--berry)"
           title="My wishlist"
@@ -83,9 +84,9 @@ export default function ListsPage() {
   );
 }
 
-function Tile({ to, icon: Icon, tone, title, body, stat }: { to: string; icon: IconT; tone: string; title: string; body: string; stat?: string | null }) {
+function Tile({ to, icon: Icon, tone, title, body, stat, tour }: { to: string; icon: IconT; tone: string; title: string; body: string; stat?: string | null; tour?: string }) {
   return (
-    <li>
+    <li data-tour={tour}>
       <Link to={to} className="card flex min-h-[84px] items-center gap-4 p-4 transition-colors hover:border-pine">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl" style={{ color: tone, background: `color-mix(in srgb, ${tone} 14%, transparent)` }}>
           <Icon size={26} />

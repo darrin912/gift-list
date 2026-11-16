@@ -67,6 +67,7 @@ export default function Layout() {
                 key={t.to}
                 to={t.to}
                 end={t.end}
+                data-tour={`nav-${t.label.toLowerCase()}`}
                 className={({ isActive }) =>
                   `rounded-full px-3.5 py-2 text-[15px] font-semibold transition-colors ${
                     isActive ? "bg-band-ink text-band" : "text-band-ink hover:bg-[color-mix(in_srgb,var(--band-ink)_12%,transparent)]"
@@ -95,6 +96,7 @@ export default function Layout() {
               key={t.to}
               to={t.to}
               end={t.end}
+              data-tour={`nav-${t.label.toLowerCase()}`}
               className={({ isActive }) =>
                 `flex min-h-[60px] flex-col items-center justify-center gap-0.5 text-[12px] font-semibold ${isActive ? "text-pine" : "text-muted"}`
               }

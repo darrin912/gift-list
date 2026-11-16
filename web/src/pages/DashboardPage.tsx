@@ -83,7 +83,7 @@ function PotCard({ d }: { d: Dashboard }) {
   const t = d.totals;
   const over = t.remainingCents < 0;
   return (
-    <section className="card overflow-hidden" aria-labelledby="pot-h">
+    <section className="card overflow-hidden" aria-labelledby="pot-h" data-tour="pot">
       <div className="p-5">
         <h2 id="pot-h" className="text-[15px] font-semibold text-muted">Shared pot</h2>
         <p className="mt-1 flex flex-wrap items-baseline gap-x-2">
@@ -290,7 +290,7 @@ function Attention({ d, map }: { d: Dashboard; map: Map<number, Person> }) {
     return l === "Unknown" ? "Someone" : l;
   };
   return (
-    <section className="card" aria-labelledby="att-h">
+    <section className="card" aria-labelledby="att-h" data-tour="attention">
       <div className="flex items-baseline justify-between px-5 pb-2 pt-5">
         <h2 id="att-h" className="text-[19px] font-bold">Needs attention</h2>
         {total > 0 && <span className="tnum text-[14px] text-muted">{total}</span>}

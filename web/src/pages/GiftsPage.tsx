@@ -93,7 +93,7 @@ export default function GiftsPage() {
         title="Gifts"
         sub={scope === "inbox" ? "Ideas inbox: no season yet" : scope === "all" ? "Every season" : season?.name}
         right={
-          <Link to={newHref} className="btn-primary hidden md:inline-flex">
+          <Link to={newHref} className="btn-primary hidden md:inline-flex" data-tour="add-gift">
             <IconPlus size={20} /> Add gift
           </Link>
         }
@@ -148,7 +148,7 @@ export default function GiftsPage() {
         </button>
       </div>
 
-      <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]" aria-label="Filter by status">
+      <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]" aria-label="Filter by status" data-tour="gift-status">
         {ALL_STATUSES.map((s) => {
           const on = statuses.includes(s);
           return (
@@ -251,7 +251,7 @@ export default function GiftsPage() {
                 {list.length} {list.length === 1 ? "gift" : "gifts"}
                 {total > 0 && ` · ${formatCents(total)} planned or bought`}
               </p>
-              <div className="flex shrink-0 gap-0.5 rounded-xl bg-surface-2 p-1" role="group" aria-label="View">
+              <div className="flex shrink-0 gap-0.5 rounded-xl bg-surface-2 p-1" role="group" aria-label="View" data-tour="gift-view">
                 {(
                   [
                     ["cards", "Cards", IconCards],
@@ -289,6 +289,7 @@ export default function GiftsPage() {
 
       <Link
         to={newHref}
+        data-tour="add-gift"
         className="fixed bottom-[calc(76px+env(safe-area-inset-bottom))] right-4 z-30 inline-flex h-14 items-center gap-2 rounded-full bg-berry pl-4 pr-5 text-[16px] font-bold text-pine-ink shadow-[0_10px_24px_-8px_rgba(120,20,40,0.6)] transition-transform active:scale-95 md:hidden"
       >
         <IconPlus size={22} strokeWidth={2.6} /> Add gift
