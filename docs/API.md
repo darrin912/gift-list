@@ -248,3 +248,38 @@ Receipt photos, avatars, and nightly backups are out of scope by decision. D1 Ti
 - Settings budgets table: a "🏠 Family" row with its own budget input, included in the live allocation summary.
 - Shopping, wrapping, and the Christmas Eve checklist list multi-person gifts once, as "for Ava & Ben", or under a "Family" group for Christmas Eve.
 - Givers matrix: a multi-person gift fills every recipient's column.
+
+---
+
+# Phase 4: My wishlist
+
+## Definition
+A **wishlist item** belongs to a user when the gift has `createdBy = user.id`, `recipientIds = [user.personId]` (exactly one recipient, `isFamily` false), and `wished = true`. Gifts that someone else created for you, even with `wished` set, are **not** wishlist items and stay fully hidden. Multi-recipient and family gifts are never wishlist items.
+
+## Data
+New gift column `withdrawn_at` (nullable timestamp). `Gift` JSON gains `withdrawnAt: string|null` and `isWishlistItem: boolean` (true when the definition holds, from any viewer's perspective).
+
+## Owner's view (the recipient)
+Wishlist items stay **hidden** from their owner in all existing routes (`/gifts`, dashboard, activity, history, export, similar, draw). They are reachable only through:
+- `GET /wishlist` → `[WishItem]`, newest first, excluding withdrawn items. Includes items in the ideas inbox and in seasons that aren't past or archived. Once a season is past, the normal rules already show the item as a normal gift.
+- `WishItem = { id, title, description, url, imageUrl, category, priority, estPriceCents, seasonId: number|null, createdAt, updatedAt }`. **Only these fields**: no status, actual price, store, order or tracking numbers, return-by date, givers, watch, or withdrawn fields. Never derive anything from those fields (no ordering, filtering, or 4xx that depends on them).
+- `POST /wishlist` with `{ title, url?, imageUrl?, description?, category?, priority?, estPriceCents?, seasonId? }` creates a gift with the viewer as sole recipient, `wished` true, and `status` "idea". It returns a WishItem.
+- `PATCH /wishlist/:id`: only the WishItem fields (and `seasonId` only while the gift is still in the inbox or a season, never in a way that reveals anything). It returns a WishItem. It returns 404 unless the item is the viewer's own and not withdrawn.
+- `DELETE /wishlist/:id` → `{ ok: true }`. It **always** soft-withdraws (sets `withdrawn_at`) and never hard-deletes, regardless of status.
+- Activity rows for wishlist actions (`Added "X" to their wishlist`, `Updated wishlist item "X"`, `Removed "X" from their wishlist`) are visible to other users and hidden from the owner, as usual.
+
+## Everyone else (e.g. the spouse)
+- Wishlist items appear as normal gifts, with `isWishlistItem: true` and `withdrawnAt`. The spouse can update any field.
+- The UI shows a "🎁 From Darrin's wishlist" badge, using the creator's display name.
+- Withdrawn items show "No longer wanted" with a gentle style. They're included in money totals only if their status counts (unchanged money rules), so a bought-then-withdrawn gift still counts until it's returned or deleted.
+- The spouse can still hard-delete the gift as usual.
+- Gift list filter: "Wishlist items".
+- Dashboard attention list: add "Withdrawn wishes" for withdrawn items with status ordered, received, or wrapped (a possible return).
+
+## UI
+- **Lists hub:** a "My wishlist" tile, first in the list.
+- **`/wishlist` page:**
+  - Quick-add (title + optional link with the existing auto-fill), a list of cards showing title, link, image, notes, priority, and price, each with the badge "On your list".
+  - Edit sheet; "Remove from my list" with a confirm ("Stephanie will see that you no longer want this").
+  - Empty state: "Add things you'd love. Stephanie sees them; you'll never see if they were bought."
+- **Gift form:** choosing yourself as the only recipient while creating a new gift shows a hint linking to "Add to My wishlist instead", which is the recommended path. Saving still works as before, and the gift is auto-marked `wished` (it becomes a wishlist item).
